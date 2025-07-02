@@ -1,0 +1,13 @@
+{
+    "name": "cli",
+    "authors": ["schwalbe_t"],
+    "desciption": "The command line interface for the Quill compiler.",
+    "type": "application",
+    "backend": "c",
+    "dependencies": [
+        "https://github.com/quill-project/std-c",
+        "https://github.com/quill-project/os",
+        "https://github.com/quill-project/conc",
+        "https://github.com/quill-project/terminal"
+    ]
+}
