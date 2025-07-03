@@ -54,6 +54,21 @@ pub enum Backend(
     C
 )
 
+pub fun Backend::eq(lhs: Backend, rhs: Backend) -> Bool {
+    match Pair(lhs, rhs) {
+        Pair(Any, Any) { return true }
+        Pair(C, C) { return true }
+        _ { return false }
+    }
+}
+
+pub fun Backend::as_string(self: Backend) -> String {
+    match self {
+        Any { return "any" }
+        C { return "c" }
+    }
+}
+
 fun Backend::parse(text: String, parsing: String) -> Backend {
     match text {
         "any" { return Backend::Any }
@@ -67,6 +82,9 @@ fun Backend::parse(text: String, parsing: String) -> Backend {
         }
     }
 }
+
+pub fun Backend::may_depend_on(self: Backend, dep: Backend) -> Bool
+    = self == dep || dep == Backend::Any
 
 pub struct Config(
     name: String,

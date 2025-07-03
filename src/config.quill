@@ -1,0 +1,26 @@
+
+mod quill::cli::config
+
+use os::env
+
+pub fun git_path() -> String
+    = env::get_var("QUILL_GIT")
+    |> unwrap_or("git")
+
+pub fun cc_path() -> String
+    = env::get_var("QUILL_CC")
+    |> unwrap_or("cc")
+
+pub fun cc_flags() -> List[String]
+    = env::get_var("QUILL_CC_FLAGS")
+    |> map[String, List[String]](|flags| flags 
+        |> split(" ") 
+        |> filter(!String::is_empty)
+        |> List::collect()
+    )
+    |> unwrap_or_else(List::empty)
+
+pub fun c_use_lto() -> Bool
+    = env::get_var("QUILL_C_NO_LTO")
+    |> map(String::is_empty)
+    |> unwrap_or(true)

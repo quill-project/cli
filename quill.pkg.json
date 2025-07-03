@@ -9,6 +9,8 @@
         "https://github.com/quill-project/std-c",
         "https://github.com/quill-project/os",
         "https://github.com/quill-project/conc",
-        "https://github.com/quill-project/terminal"
+        "https://github.com/quill-project/terminal",
+        "https://github.com/quill-project/compiler",
+        "https://github.com/quill-project/json"
     ]
 }

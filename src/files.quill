@@ -1,7 +1,7 @@
 
 mod quill::cli::files
 
-use quill::cli::(pkg, log)
+use quill::cli::(pkg, log, build)
 use os::(fs, fs::path)
 
 pub fun catch_os_while[T](r: Result[T, os::Error], doing: String) -> T {
@@ -15,11 +15,11 @@ pub fun catch_os_while[T](r: Result[T, os::Error], doing: String) -> T {
 }
 
 pub fun create_package(path: String, name: String, type: String) {
-    val config_path: String = path::join(path, "quill.pkg.json")
+    val config_path: String = path::join(path, build::CONFIG_FILE_LOC)
     create_config(config_path, name, type)
     val gitignore_path: String = path::join(path, ".gitignore")
     create_gitignore(gitignore_path)
-    val source_dir: String = path::join(path, "src")
+    val source_dir: String = path::join(path, build::QUILL_SRC_DIR)
     fs::create_dir(source_dir)
         |> catch_os_while("creating project source directory")
     create_main_file(source_dir, name, type)
@@ -82,11 +82,12 @@ pub fun create_config(path: String, name: String, type: String) {
 }
 
 val GITIGNORE_TEMPLATE: String = "\
-.quill
+_
 "
 
 pub fun create_gitignore(path: String) {
     GITIGNORE_TEMPLATE
+        |> fmt(quill::cli::build::OUT_DIR)
         |> fs::write_file(path)
         |> catch_os_while[Unit]("creating .gitignore template")
 }
@@ -141,4 +142,17 @@ pub fun nuke_dir(dir: String) {
         })
     fs::delete_dir(dir)
         |> catch_os_while[Unit]("deleting '_'" |> fmt(dir))
+}
+
+pub fun read_dir_rec(dir: String, out: mut Set[String]) {
+    val names: List[String] = fs::read_dir(dir) 
+        |> unwrap_or(List::empty())
+    for name: names |> values() {
+        val file: String = path::join(dir, name)
+        if fs::is_dir(file) {
+            read_dir_rec(file, out)
+        } else {
+            out |> add(file)
+        }
+    }
 }
