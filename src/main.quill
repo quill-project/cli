@@ -93,6 +93,22 @@ fun main() {
                 }
             }
         }
+        "bundle" {
+            req_arg_c(2)
+            val config_text = fs::read_file(build::CONFIG_FILE_LOC)
+                |> catch_os_while[String](
+                    "reading '_'" |> fmt(build::CONFIG_FILE_LOC)
+                )
+            val config = pkg::Config::parse(config_text, build::CONFIG_FILE_LOC)
+            match config.type {
+                Application(main) {
+                    build::bundle(config, main)
+                }
+                _ {
+                    log::error("'_' is not an application!" |> fmt(config.name))
+                }
+            }
+        }
         "clean" {
             if fs::is_dir(build::OUT_DIR) {
                 files::nuke_dir(build::OUT_DIR)

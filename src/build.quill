@@ -110,6 +110,26 @@ pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
     log::compiled(config.name)
 }
 
+pub fun bundle(config: pkg::Config, main: List[String]) {
+    if !fs::is_dir(OUT_DIR) {
+        fs::create_dir(OUT_DIR)
+            |> catch_os_while[Unit]("creating output directory")
+    }
+    val packages: mut List[Pair[pkg::Config, String]] = List::empty()
+    packages |> push(Pair(config, "."))
+    collect_dependencies(".", config, packages)
+    log::compiling(config.name)
+    val quill_out: mut Set[String] = Set::empty()
+    compile_quill(
+        packages, main, config.backend, OUT_DIR, config.name, quill_out
+    )
+    match config.backend {
+        C { bundle_c(packages, quill_out, OUT_DIR, config.name) }
+        _ { log::error("'bundle' is not supported for this backend!") }
+    }
+    log::compiled(config.name)
+}
+
 use quill::(
     Message,
     lexer, token::Token,
@@ -232,14 +252,11 @@ fun compile_quill(
     }
 }
 
-fun compile_c(
+fun collect_c_files(
     packages: mut List[Pair[pkg::Config, String]],
-    c_files: mut Set[String], 
-    mode: Mode,
-    out_dir: String, 
-    name: String
+    c_files: mut Set[String],
+    include_dirs: mut List[String]
 ) {
-    val include_dirs: mut List[String] = List::empty()
     for package: packages |> values() {
         val src_dir: String = path::join(package.second, C_SRC_DIR)
         files::read_dir_rec(src_dir, c_files)
@@ -248,6 +265,17 @@ fun compile_c(
             include_dirs |> push(include_dir)
         }
     }
+}
+
+fun compile_c(
+    packages: mut List[Pair[pkg::Config, String]],
+    c_files: mut Set[String], 
+    mode: Mode,
+    out_dir: String, 
+    name: String
+) {
+    val include_dirs: mut List[String] = List::empty()
+    collect_c_files(packages, c_files, include_dirs)
     val args: mut List[String] = List::empty()
     for file: c_files |> values() {
         if !(file |> ends_with(".c")) { continue }
@@ -266,7 +294,7 @@ fun compile_c(
         Release {
             args |> push("-O3")
             if c_use_lto() {
-                args |> push("-flto")
+                args |> push("-flto=4")
             }
         }
     }
@@ -277,8 +305,55 @@ fun compile_c(
         |> catch_os_while[mut Process]("invoking C compiler")
     val comp_res: Int = comp |> wait()
     if comp_res != 0 {
-        comp |> read_stdout() |> print()
-        comp |> read_stderr() |> eprint()
-        log::error("failed to compile C code")
+        val output: String = comp |> read_stdout()
+            |> concat(comp |> read_stderr())
+        log::error_while("compiling C code", output)
     }
+}
+
+fun replace_c_includes(source: String, headers: Map[String, String]) -> String {
+    mut r: String = source
+    for header: headers |> entries() {
+        val include: String = "#include <" 
+            |> concat(header.first) |> concat(">")
+        val occurances: List[String] = r 
+            |> split(include) |> List::collect()
+        if (occurances |> length()) <= 1 { continue }
+        val repl: String = header.second |> replace_c_includes(headers)
+        r = occurances |> values() |> join(repl)
+    }
+    return r
+}
+
+fun bundle_c(
+    packages: mut List[Pair[pkg::Config, String]],
+    c_files: mut Set[String], 
+    out_dir: String, 
+    name: String
+) {
+    val include_dirs: mut List[String] = List::empty()
+    collect_c_files(packages, c_files, include_dirs)
+    val included_headers: mut Map[String, String] = Map::empty()
+    for dir: include_dirs |> values() {
+        val og_cwd: String = path::get_cwd()
+        path::set_cwd(dir)
+        val paths: mut Set[String] = Set::empty()
+        files::read_dir_rec(".", paths)
+        for raw_path: paths |> values() {
+            val path = raw_path 
+                |> slice_from("." |> length()) 
+                |> path::trim_begin()
+            val content = fs::read_file(raw_path)
+                |> unwrap()
+            included_headers |> set(path, content)
+        }
+        path::set_cwd(og_cwd)
+    }
+    val bundled = StringBuilder::empty()
+    for path: c_files |> values() {
+        val content: String = fs::read_file(path) |> unwrap()
+        bundled |> push(content |> replace_c_includes(included_headers))
+    }
+    val out_path: String = path::join(out_dir, name |> concat("_bundled.c"))
+    bundled |> as_string() |> fs::write_file(out_path)
 }

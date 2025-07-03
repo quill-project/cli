@@ -145,7 +145,7 @@ pub fun nuke_dir(dir: String) {
 }
 
 pub fun read_dir_rec(dir: String, out: mut Set[String]) {
-    val names: List[String] = fs::read_dir(dir) 
+    val names: List[String] = fs::read_dir(dir)
         |> unwrap_or(List::empty())
     for name: names |> values() {
         val file: String = path::join(dir, name)
