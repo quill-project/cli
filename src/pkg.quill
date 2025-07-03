@@ -1,0 +1,139 @@
+
+mod quill::cli::pkg
+
+use json::Json
+use quill::cli::log
+
+pub enum Type(
+    Application: List[String],
+    Library,
+    Plugin
+)
+
+pub fun Type::as_string(self: Type) -> String {
+    match self {
+        Application(_) { return "application" }
+        Library { return "library" }
+        Plugin { return "plugin" }
+    }
+}
+
+fun Type::parse(text: String, main: Option[String], parsing: String) -> Type {
+    match text {
+        "application" {
+            match main {
+                Some(main_raw) {
+                    val main_path: List[String] = main_raw 
+                        |> split("::") 
+                        |> List::collect()
+                    return Type::Application(main_path)
+                }
+                None {
+                    log::error_while(
+                        parsing, 
+                        "Package type 'application' must specify 'main'!"
+                    )
+                    return panic("unreachable")
+                }
+            }
+        }
+        "library" { return Type::Library }
+        "plugin" { return Type::Plugin }
+        _ {
+            log::error_while(
+                parsing, 
+                "'_' is not a known application type!" |> fmt(text)
+            )
+            return panic("unreachable")
+        }
+    }
+}
+
+pub enum Backend(
+    Any,
+    C
+)
+
+fun Backend::parse(text: String, parsing: String) -> Backend {
+    match text {
+        "any" { return Backend::Any }
+        "c" { return Backend::C }
+        _ {
+            log::error_while(
+                parsing, 
+                "'_' is not a known backend!" |> fmt(text)
+            )
+            return panic("unreachable")
+        }
+    }
+}
+
+pub struct Config(
+    name: String,
+    type: Type,
+    backend: Backend,
+    dependencies: List[String]
+)
+
+
+pub fun Config::parse(text: String, path: String) -> Config {
+    val parsing: String = "parsing '_'" |> fmt(path)
+    val j: Json = Json::parse(text)
+        |> unwrap_or_else(|e| {
+            val line_i: Int = text 
+                |> slice_to(e.offset) 
+                |> split("\n") 
+                |> length()
+            val column_i: Int = text
+                |> slice_to(e.offset)
+                |> split("\n")
+                |> last()
+                |> unwrap_or("")
+                |> length()
+            val msg: String = "On line _, column _: _" |> fmt(
+                line_i |> as_string(), 
+                (column_i + 1) |> as_string(), 
+                e.reason
+            )
+            log::error_while(parsing, msg)
+            return Json::Null
+        })
+    val error_missing: Fun(String) -> String = |property| {
+        log::error_while(
+            parsing, 
+            "Missing or invalid required property '_'" |> fmt(property)
+        )
+        return "unreachable"
+    }
+    val props: mut Map[String, Json] = j |> get_object() 
+        |> unwrap_or_else(|| {
+            log::error_while(
+                parsing, 
+                "Configuration file must contain a JSON object!"
+            )
+            return panic("unreachable")
+        })
+    val name: String = props 
+        |> get("name") |> and_then(Json::get_string)
+        |> unwrap_or_else(|| panic(error_missing("name")))
+    val main: Option[String] = props
+        |> get("main") |> and_then(Json::get_string)
+    val type: Type = props
+        |> get("type") |> and_then(Json::get_string)
+        |> unwrap_or_else(|| panic(error_missing("type")))
+        |> Type::parse(main, parsing)
+    val backend: Backend = props
+        |> get("backend") |> and_then(Json::get_string)
+        |> unwrap_or_else(|| panic(error_missing("backend")))
+        |> Backend::parse(parsing)
+    val dependencies: List[String] = props
+        |> get("dependencies") |> and_then(Json::get_list)
+        |> unwrap_or_else(|| panic(error_missing("dependencies")))
+        |> values()
+        |> map[Json, String](|v| v 
+            |> get_string() 
+            |> unwrap_or_else(|| panic(error_missing("dependencies")))
+        )
+        |> List::collect()
+    return Config(name, type, backend, dependencies)
+}

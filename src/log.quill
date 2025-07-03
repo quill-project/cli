@@ -1,0 +1,79 @@
+
+mod quill::cli::log
+
+val STATUS_CREATED: String   = " created   "
+val STATUS_CLONING: String   = " cloning   "
+val STATUS_CLONED: String    = " cloned    "
+val STATUS_COMPILING: String = " compiling "
+val STATUS_COMPILED: String  = " compiled  "
+val STATUS_CLEANED: String   = " cleaned   "
+val STATUS_ERROR: String     = " error!    "
+
+use terminal::(style::*, io::*)
+
+pub fun created(name: String) {
+    print("\t")
+    print(STATUS_CREATED |> style(BLACK, ON_GREEN))
+    print(" ")
+    print("package '_'" |> fmt(name))
+    print("\n")
+}
+
+pub fun cloning(name: String) {
+    print("\t")
+    print(STATUS_CLONING |> style(BLACK, ON_BRIGHT_MAGENTA))
+    print(" ")
+    print(name)
+    print("\r")
+}
+
+pub fun cloned(name: String) {
+    print("\t")
+    print(STATUS_CLONED |> style(WHITE, ON_BRIGHT_BLACK))
+    print(" ")
+    print(name |> style(BRIGHT_BLACK))
+    print("\n")
+}
+
+pub fun compiling(name: String) {
+    print("\t")
+    print(STATUS_COMPILING |> style(BLACK, ON_BRIGHT_MAGENTA))
+    print(" ")
+    print(name)
+    print("\r")
+}
+
+pub fun compiled(name: String) {
+    print("\t")
+    print(STATUS_COMPILED |> style(BLACK, ON_GREEN))
+    print(" ")
+    print(name)
+    print("\n")
+}
+
+pub fun cleaned() {
+    print("\t")
+    print(STATUS_CLEANED |> style(BLACK, ON_GREEN))
+    print(" ")
+    print("package directory")
+    print("\n")
+}
+
+pub fun error(reason: String) {
+    print("\t")
+    print(STATUS_ERROR |> style(BLACK, ON_BRIGHT_RED))
+    print(" ")
+    print(reason)
+    print("\n")
+    os::exit(1)
+}
+
+pub fun error_while(doing: String, e: String) {
+    print("\t")
+    print(STATUS_ERROR |> style(BLACK, ON_BRIGHT_RED))
+    print(" ")
+    print("while _:" |> fmt(doing))
+    print("\n")
+    println(e)
+    os::exit(1)
+}

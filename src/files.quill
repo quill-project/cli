@@ -1,0 +1,144 @@
+
+mod quill::cli::files
+
+use quill::cli::(pkg, log)
+use os::(fs, fs::path)
+
+pub fun catch_os_while[T](r: Result[T, os::Error], doing: String) -> T {
+    match r {
+        Ok(v) { return v }
+        Err(e) {
+            log::error_while(doing, os::Error::as_string(e))
+            return panic("unreachable")
+        }
+    }
+}
+
+pub fun create_package(path: String, name: String, type: String) {
+    val config_path: String = path::join(path, "quill.pkg.json")
+    create_config(config_path, name, type)
+    val gitignore_path: String = path::join(path, ".gitignore")
+    create_gitignore(gitignore_path)
+    val source_dir: String = path::join(path, "src")
+    fs::create_dir(source_dir)
+        |> catch_os_while("creating project source directory")
+    create_main_file(source_dir, name, type)
+}
+
+use json::Json
+
+fun get_username_string() -> String
+    = os::env::get_var("USERNAME")
+    |> or_else(|| os::env::get_var("USER"))
+    |> or_else(|| os::env::get_var("LOGNAME"))
+    |> map[String, String](|u| Json::as_string(Json::String(u)))
+    |> unwrap_or("")
+
+val APP_CONFIG_TEMPLATE: String = "\
+{
+    \"name\": \"_\",
+    \"authors\": [_],
+    \"description\": \"\",
+    \"type\": \"application\",
+    \"main\": \"_\",
+    \"backend\": \"c\",
+    \"dependencies\": [
+        \"https://github.com/quill-project/std-c\"
+    ]
+}
+"
+
+val LIB_CONFIG_TEMPLATE: String = "\
+{
+    \"name\": \"_\",
+    \"authors\": [_],
+    \"description\": \"\",
+    \"type\": \"_\",
+    \"backend\": \"any\",
+    \"dependencies\": [
+        \"https://github.com/quill-project/std\"
+    ]
+}
+"
+
+pub fun create_config(path: String, name: String, type: String) {
+    val user: String = get_username_string()
+    match type {
+        "application" {
+            val main: String = name |> concat("::main")
+            val content: String = APP_CONFIG_TEMPLATE |> fmt(name, user, main)
+            fs::write_file(content, path) 
+                |> catch_os_while[Unit]("creating package config")
+        }
+        "library" | "plugin" {
+            val content: String = LIB_CONFIG_TEMPLATE |> fmt(name, user, type)
+            fs::write_file(content, path) 
+                |> catch_os_while[Unit]("creating package config")
+        }
+        _ {
+            log::error("'_' is not a known application type!" |> fmt(type))
+        }
+    }
+}
+
+val GITIGNORE_TEMPLATE: String = "\
+.quill
+"
+
+pub fun create_gitignore(path: String) {
+    GITIGNORE_TEMPLATE
+        |> fs::write_file(path)
+        |> catch_os_while[Unit]("creating .gitignore template")
+}
+
+val APP_MAIN_TEMPLATE: String = "\
+
+mod _
+
+fun main() {
+    println(\"Hello, world!\")
+}
+"
+
+val LIB_MAIN_TEMPLATE: String = "\
+
+mod _
+
+fun add(a: Int, b: Int) -> Int {
+    return a + b
+}
+"
+
+pub fun create_main_file(source_dir: String, name: String, type: String) {
+    match type {
+        "application" {
+            val path: String = path::join(source_dir, "main.quill")
+            val content: String = APP_MAIN_TEMPLATE |> fmt(name)
+            fs::write_file(content, path)
+                |> catch_os_while[Unit]("creating main file")
+        }
+        _ {
+            val path: String = path::join(source_dir, name |> concat(".quill"))
+            val content: String = LIB_MAIN_TEMPLATE |> fmt(name)
+            fs::write_file(content, path)
+                |> catch_os_while[Unit]("creating main file")
+        }
+    }
+}
+
+pub fun nuke_dir(dir: String) {
+    fs::read_dir(dir)
+        |> unwrap_or(List::empty())
+        |> values()
+        |> for_each(|name| {
+            val file: String = path::join(dir, name)
+            if fs::is_dir(file) { 
+                nuke_dir(file) 
+            } else {
+                fs::delete_file(file)
+                    |> catch_os_while[Unit]("deleting '_'" |> fmt(file))
+            }
+        })
+    fs::delete_dir(dir)
+        |> catch_os_while[Unit]("deleting '_'" |> fmt(dir))
+}
