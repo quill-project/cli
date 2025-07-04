@@ -104,8 +104,9 @@ pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
         packages, main, config.backend, OUT_DIR, config.name, quill_out
     )
     match config.backend {
-        Any { return panic("unreachable") }
         C { compile_c(packages, quill_out, mode, OUT_DIR, config.name) }
+        Js {}
+        Any { return panic("unreachable") }
     }
     log::compiled(config.name)
 }
@@ -239,15 +240,24 @@ fun compile_quill(
         }
     }
     match backend {
-        Any {
-            log::error("Cannot build an application for backend 'any'!")
-        }
         C {
             val output: String = codegen::c::emit(unl_table, main, unl_messages)
             report_errors()
             val out_path: String = path::join(out_dir, name |> concat(".c"))
             output |> fs::write_file(out_path) |> unwrap()
             generated |> add(out_path)
+        }
+        Js {
+            val output: String = codegen::js::emit(unl_table, main, unl_messages)
+            report_errors()
+            val out_path: String = path::join(out_dir, name |> concat(".js"))
+            output |> fs::write_file(out_path) |> unwrap()
+            generated |> add(out_path)
+        }
+        Any {
+            "Cannot build an application for backend '_'!" 
+                |> fmt(pkg::Backend::as_string(backend))
+                |> log::error()
         }
     }
 }
