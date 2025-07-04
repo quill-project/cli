@@ -1,4 +1,4 @@
-<img src="./quill_tp.svg" height="200px" align="right">
+<img src="./quill_tp.svg" width="200px" align="right">
 
 ### The Quill CLI
 The command line interface for the Quill compiler.
