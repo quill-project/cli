@@ -17,8 +17,6 @@ This produces a `quill` binary that you can put anywhere (make sure to add it to
 
 If the above command DID NOT work with `cc`, make sure to also tell which C compiler Quill should use by specifying it with the `QUILL_CC` environment variable (e.g. `QUILL_CC=gcc`).
 
-If the C compiler you want to use does not have support for link time optimization, set the `QUILL_C_NO_LTO` environment variable to any value (e.g. `QUILL_C_NO_LTO`). (Otherwise `build release` will fail if your C compiler doesn't support LTO.)
-
 For Windows I suggest using [w64devkit](https://github.com/skeeto/w64devkit) due to its comparatively small footprint.
 
 ### Usage
@@ -52,7 +50,6 @@ Deletes the `.quill` directory in the current directory (which contains the buil
 - `QUILL_GIT` - The git implementation to use (`git` by default)
 - `QUILL_CC` - The C compiler to use (`cc` by default)
 - `QUILL_CC_FLAGS` - Additional flags to pass to the C compiler
-- `QUILL_C_NO_FLTO` - Disables link time optimization if set to a non-empty string (LTO enabled by default)
 
 ### Package Configuration
 

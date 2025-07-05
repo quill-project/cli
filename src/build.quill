@@ -303,9 +303,6 @@ fun compile_c(
         }
         Release {
             args |> push("-O3")
-            if c_use_lto() {
-                args |> push("-flto=4")
-            }
         }
     }
     args |> append(cc_flags())

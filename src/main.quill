@@ -36,10 +36,6 @@ fun generate_usage_info() -> String {
     o |> push(descr("\tDefault: 'cc'"))
     o |> push(item(" QUILL_CC_FLAGS "))
     o |> push(descr("\tAdditional flags that should be passed to the C compiler when using the C backend."))
-    o |> push(item(" QUILL_C_NO_LTO "))
-    o |> push(descr("\tDisables usage of link time optimization when compiling in release mode using the C backend."))
-    o |> push(descr("\tAny non-empty value disables usage of LTO."))
-    o |> push(descr("\tDefault: LTO enabled"))
     return o |> as_string()
 }
 

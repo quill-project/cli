@@ -19,8 +19,3 @@ pub fun cc_flags() -> List[String]
         |> List::collect()
     )
     |> unwrap_or_else(List::empty)
-
-pub fun c_use_lto() -> Bool
-    = env::get_var("QUILL_C_NO_LTO")
-    |> map(String::is_empty)
-    |> unwrap_or(true)
