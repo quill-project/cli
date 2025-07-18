@@ -36,6 +36,9 @@ fun generate_usage_info() -> String {
     o |> push(descr("\tDefault: 'cc'"))
     o |> push(item(" QUILL_CC_FLAGS "))
     o |> push(descr("\tAdditional flags that should be passed to the C compiler when using the C backend."))
+    o |> push(item(" QUILL_NPROC "))
+    o |> push(descr("\tAn integer specfifying the number of cores the Quill compiler should use for compilation."))
+    o |> push(descr("\tDefault: [N - 2] (where 'N' is the number of cores available)"))
     return o |> as_string()
 }
 

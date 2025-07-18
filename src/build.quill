@@ -140,10 +140,6 @@ use quill::(
 )
 use conc::(Mutex, Thread)
 
-val THREAD_COUNT: Int = 10
-val PARSER_THREAD_COUNT: Int = THREAD_COUNT
-val CHECKER_THREAD_COUNT: Int = THREAD_COUNT
-
 fun compile_quill(
     packages: mut List[Pair[pkg::Config, String]], 
     main: List[String],
@@ -194,7 +190,7 @@ fun compile_quill(
             } 
         }
     }
-    val parser_workers: List[Thread] = range(0, PARSER_THREAD_COUNT)
+    val parser_workers: List[Thread] = range(0, nproc())
         |> map(|_| Thread::spawn(parser_worker))
         |> List::collect()
     parser_workers |> values() |> for_each(Thread::join)
@@ -239,7 +235,7 @@ fun compile_quill(
             }
         }
     }
-    val checker_workers: List[Thread] = range(0, CHECKER_THREAD_COUNT)
+    val checker_workers: List[Thread] = range(0, nproc())
         |> map(|_| Thread::spawn(checker_worker))
         |> List::collect()
     checker_workers |> values() |> for_each(Thread::join)
@@ -265,7 +261,19 @@ fun compile_quill(
     }
     match backend {
         C {
-            val output: String = codegen::c::emit(unl_table, main, unl_messages())
+            val results: mut Mutex[mut List[codegen::c::TaskResult]] 
+                = Mutex::new(List::empty())
+            val workers: List[Thread] 
+                = codegen::c::create_tasks(unl_table, nproc())
+                |> map(|t| Thread::spawn(|| {
+                    val r: codegen::c::TaskResult = t()
+                    results |> take(|results| { results.value |> push(r) })
+                }))
+                |> List::collect()
+            workers |> values() |> for_each(Thread::join)
+            val output: String = codegen::c::combine_results(
+                results |> compute(|r| r), unl_table, main, unl_messages()
+            )
             report_errors()
             val out_path: String = path::join(out_dir, name |> concat(".c"))
             output |> fs::write_file(out_path) |> unwrap()
