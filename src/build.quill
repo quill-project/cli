@@ -272,7 +272,8 @@ fun compile_quill(
                 |> List::collect()
             workers |> values() |> for_each(Thread::join)
             val output: String = codegen::c::combine_results(
-                results |> compute(|r| r), unl_table, main, unl_messages()
+                results |> compute(|r| r), unl_table, Option::Some(main), 
+                unl_messages()
             )
             report_errors()
             val out_path: String = path::join(out_dir, name |> concat(".c"))
