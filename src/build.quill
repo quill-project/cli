@@ -85,9 +85,9 @@ fun collect_dependencies(
                 )
                 |> log::error()
         }
-        out |> push(Pair(dep_config, dep_path))
         match dep_config.type {
             Application(_) | Library {
+                out |> push(Pair(dep_config, dep_path))
                 collect_dependencies(dep_path, dep_config, mode, out)
             }
             DynLibrary {
