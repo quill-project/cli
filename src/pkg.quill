@@ -7,6 +7,7 @@ use quill::cli::log
 pub enum Type(
     Application: List[String],
     Library,
+    DynLibrary,
     Plugin
 )
 
@@ -14,6 +15,7 @@ pub fun Type::as_string(self: Type) -> String {
     match self {
         Application(_) { return "application" }
         Library { return "library" }
+        DynLibrary { return "dyn_library" }
         Plugin { return "plugin" }
     }
 }
@@ -38,6 +40,7 @@ fun Type::parse(text: String, main: Option[String], parsing: String) -> Type {
             }
         }
         "library" { return Type::Library }
+        "dyn_library" { return Type::DynLibrary }
         "plugin" { return Type::Plugin }
         _ {
             log::error_while(

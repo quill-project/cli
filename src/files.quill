@@ -54,9 +54,9 @@ val LIB_CONFIG_TEMPLATE: String = "\
     \"authors\": [_],
     \"description\": \"\",
     \"type\": \"_\",
-    \"backend\": \"any\",
+    \"backend\": \"_\",
     \"dependencies\": [
-        \"https://github.com/quill-project/std\"
+        _
     ]
 }
 "
@@ -70,13 +70,34 @@ pub fun create_config(path: String, name: String, type: String) {
             fs::write_file(content, path) 
                 |> catch_os_while[Unit]("creating package config")
         }
-        "library" | "plugin" {
-            val content: String = LIB_CONFIG_TEMPLATE |> fmt(name, user, type)
+        "library" {
+            val content: String = LIB_CONFIG_TEMPLATE |> fmt(
+                name, user, type, "any", 
+                "\"https://github.com/quill-project/std\""
+            )
             fs::write_file(content, path) 
                 |> catch_os_while[Unit]("creating package config")
         }
+        "dyn_library" {
+            val content: String = LIB_CONFIG_TEMPLATE |> fmt(
+                name, user, type, "c", 
+                "\"https://github.com/quill-project/std-c\""
+            )
+            fs::write_file(content, path) 
+                |> catch_os_while[Unit]("creating package config")
+        }
+        "plugin" {
+            val content: String = LIB_CONFIG_TEMPLATE |> fmt(
+                name, user, type, "c", 
+                "\"https://github.com/quill-project/std-c\""
+                    |> concat(",\n        ")
+                    |> concat("\"https://github.com/quill-project/macro\"")
+            )
+            fs::write_file(content, path)
+                |> catch_os_while[Unit]("creating package config")
+        }
         _ {
-            log::error("'_' is not a known application type!" |> fmt(type))
+            log::error("'_' is not a known package type!" |> fmt(type))
         }
     }
 }

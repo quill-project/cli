@@ -57,7 +57,7 @@ fun clone_dependency(url: String) -> String {
 
 // Collects all the dependencies (recursively) of the given package
 fun collect_dependencies(
-    path: String, config: pkg::Config, 
+    path: String, config: pkg::Config, mode: Mode,
     out: mut List[Pair[pkg::Config, String]]
 ) {
     for dep: config.dependencies |> values() {
@@ -86,7 +86,17 @@ fun collect_dependencies(
                 |> log::error()
         }
         out |> push(Pair(dep_config, dep_path))
-        collect_dependencies(dep_path, dep_config, out)
+        match dep_config.type {
+            Application(_) | Library {
+                collect_dependencies(dep_path, dep_config, mode, out)
+            }
+            DynLibrary {
+                build_dyn(dep_config, mode, OUT_DIR)
+            }
+            Plugin {
+                // TODO! not yet implemented
+            }
+        }
     }
 }
 
@@ -97,14 +107,45 @@ pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
     }
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
     packages |> push(Pair(config, "."))
-    collect_dependencies(".", config, packages)
+    collect_dependencies(".", config, mode, packages)
     log::compiling(config.name)
     val quill_out: mut Set[String] = Set::empty()
     compile_quill(
-        packages, main, config.backend, OUT_DIR, config.name, quill_out
+        packages, Option::Some(main), config.backend, OUT_DIR, config.name, 
+        quill_out
     )
     match config.backend {
-        C { compile_c(packages, quill_out, mode, OUT_DIR, config.name) }
+        C { 
+            compile_c(
+                packages, quill_out, mode, OUT_DIR, config.name, !BUILD_C_DYN
+            ) 
+        }
+        Js {}
+        Any { return panic("unreachable") }
+    }
+    log::compiled(config.name)
+}
+
+pub fun build_dyn(config: pkg::Config, mode: Mode, out_dir: String) {
+    if !fs::is_dir(out_dir) {
+        fs::create_dir(out_dir)
+            |> catch_os_while[Unit]("creating output directory")
+    }
+    val packages: mut List[Pair[pkg::Config, String]] = List::empty()
+    packages |> push(Pair(config, "."))
+    collect_dependencies(".", config, mode, packages)
+    log::compiling(config.name)
+    val quill_out: mut Set[String] = Set::empty()
+    compile_quill(
+        packages, Option::None, config.backend, out_dir, config.name, 
+        quill_out
+    )
+    match config.backend {
+        C { 
+            compile_c(
+                packages, quill_out, mode, out_dir, config.name, BUILD_C_DYN
+            ) 
+        }
         Js {}
         Any { return panic("unreachable") }
     }
@@ -118,11 +159,12 @@ pub fun bundle(config: pkg::Config, main: List[String]) {
     }
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
     packages |> push(Pair(config, "."))
-    collect_dependencies(".", config, packages)
+    collect_dependencies(".", config, Mode::Debug, packages)
     log::compiling(config.name)
     val quill_out: mut Set[String] = Set::empty()
     compile_quill(
-        packages, main, config.backend, OUT_DIR, config.name, quill_out
+        packages, Option::Some(main), config.backend, OUT_DIR, 
+        config.name, quill_out
     )
     match config.backend {
         C { bundle_c(packages, quill_out, OUT_DIR, config.name) }
@@ -142,7 +184,7 @@ use conc::(Mutex, Thread)
 
 fun compile_quill(
     packages: mut List[Pair[pkg::Config, String]], 
-    main: List[String],
+    main: Option[List[String]],
     backend: pkg::Backend, 
     out_dir: String, 
     name: String,
@@ -272,8 +314,7 @@ fun compile_quill(
                 |> List::collect()
             workers |> values() |> for_each(Thread::join)
             val output: String = codegen::c::combine_results(
-                results |> compute(|r| r), unl_table, Option::Some(main), 
-                unl_messages()
+                results |> compute(|r| r), unl_table, main, unl_messages()
             )
             report_errors()
             val out_path: String = path::join(out_dir, name |> concat(".c"))
@@ -281,7 +322,11 @@ fun compile_quill(
             generated |> add(out_path)
         }
         Js {
-            val output: String = codegen::js::emit(unl_table, main, unl_messages())
+            val output: String = codegen::js::emit(
+                unl_table, 
+                main |> expect("dyn_library with backend JS unsupported"), 
+                unl_messages()
+            )
             report_errors()
             val out_path: String = path::join(out_dir, name |> concat(".js"))
             output |> fs::write_file(out_path) |> unwrap()
@@ -310,13 +355,52 @@ fun collect_c_files(
     }
 }
 
+enum Target(
+    Windows,
+    MacOs,
+    Posix
+)
+
+fun find_c_target() -> Target {
+    val comp = Process::spawn(cc_path(), List::of("-dumpmachine"))
+        |> catch_os_while[mut Process]("invoking C compiler")
+    val comp_res: Int = comp |> wait()
+    if comp_res != 0 {
+        val output: String = comp |> read_stdout()
+            |> concat(comp |> read_stderr())
+        log::error_while("determining C compiler target", output)
+        return panic("errored")
+    }
+    val iden: String = comp |> read_stdout()
+    val is_windows = iden |> find("mingw") |> next()
+        |> or(iden |> find("cygwin") |> next())
+        |> or(iden |> find("windows") |> next())
+        |> is_some()
+    if is_windows { return Target::Windows }
+    val is_macos = iden |> find("darwin") |> next() |> is_some()
+    if is_macos { return Target::MacOs }
+    return Target::Posix
+}
+
+fun target_dll_ext(target: Target) -> String {
+    match target {
+        Windows { return ".dll" }
+        MacOs { return ".dylib" }
+        Posix { return ".so" }
+    }
+} 
+
+val BUILD_C_DYN: Bool = true
+
 fun compile_c(
     packages: mut List[Pair[pkg::Config, String]],
     c_files: mut Set[String], 
     mode: Mode,
     out_dir: String, 
-    name: String
+    name: String,
+    as_dyn: Bool
 ) {
+    val target: Target = find_c_target()
     val include_dirs: mut List[String] = List::empty()
     collect_c_files(packages, c_files, include_dirs)
     val args: mut List[String] = List::empty()
@@ -338,9 +422,26 @@ fun compile_c(
             args |> push("-O3")
         }
     }
+    if as_dyn {
+        match target {
+            Windows {
+                args |> push("-shared")
+            }
+            MacOs {
+                args |> push("-dynamiclib")
+                args |> push("-fPIC")
+            }
+            Posix {
+                args |> push("-shared")
+                args |> push("-fPIC")
+            }
+        }
+    }
     args |> append(cc_flags())
     args |> push("-o")
-    args |> push(path::join(out_dir, name))
+    val out: String = path::join(out_dir, name)
+        |> concat(if as_dyn { target_dll_ext(target) } else { "" })
+    args |> push(out)
     val comp = Process::spawn(cc_path(), args)
         |> catch_os_while[mut Process]("invoking C compiler")
     val comp_res: Int = comp |> wait()

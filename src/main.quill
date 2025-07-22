@@ -84,11 +84,16 @@ fun main() {
                 )
             val config = pkg::Config::parse(config_text, build::CONFIG_FILE_LOC)
             match config.type {
-                Application(main) {
+                Application(main) { 
                     build::build(config, mode, main)
                 }
+                DynLibrary {
+                    build::build_dyn(config, mode, build::OUT_DIR)
+                }
                 _ {
-                    log::error("'_' is not an application!" |> fmt(config.name))
+                    "'_' is not an application or dynamic library!" 
+                        |> fmt(config.name) 
+                        |> log::error()
                 }
             }
         }
