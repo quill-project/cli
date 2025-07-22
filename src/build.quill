@@ -367,7 +367,9 @@ enum Target(
 )
 
 fun find_c_target() -> Target {
-    val comp = Process::spawn(cc_path(), List::of("-dumpmachine"))
+    val args: mut List[String] = List::of("-dumpmachine")
+    args |> append(cc_flags())
+    val comp = Process::spawn(cc_path(), args)
         |> catch_os_while[mut Process]("invoking C compiler")
     val comp_res: Int = comp |> wait()
     if comp_res != 0 {
@@ -417,6 +419,7 @@ fun compile_c(
         args |> push("-I")
         args |> push(include_dir)
     }
+    args |> append(cc_flags())
     args |> push("-lm")
     match mode {
         Debug {
@@ -442,7 +445,6 @@ fun compile_c(
             }
         }
     }
-    args |> append(cc_flags())
     args |> push("-o")
     val out: String = path::join(out_dir, name)
         |> concat(if as_dyn { target_dll_ext(target) } else { "" })
