@@ -91,7 +91,12 @@ fun collect_dependencies(
                 collect_dependencies(dep_path, dep_config, mode, out)
             }
             DynLibrary {
-                build_dyn(dep_config, mode, OUT_DIR)
+                val abs_out_dir: String = path::canonicalize(OUT_DIR)
+                    |> catch_os_while[String]("getting output path")
+                val og_cwd: String = path::get_cwd()
+                path::set_cwd(dep_path) |> unwrap()
+                build_dyn(dep_config, mode, abs_out_dir)
+                path::set_cwd(og_cwd) |> unwrap()
             }
             Plugin {
                 // TODO! not yet implemented
