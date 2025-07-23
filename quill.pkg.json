@@ -11,6 +11,7 @@
         "https://github.com/quill-project/conc",
         "https://github.com/quill-project/terminal",
         "https://github.com/quill-project/compiler",
-        "https://github.com/quill-project/json"
+        "https://github.com/quill-project/json",
+        "https://github.com/quill-project/macro"
     ]
 }

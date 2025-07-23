@@ -8,7 +8,7 @@ pub enum Type(
     Application: List[String],
     Library,
     DynLibrary,
-    Plugin
+    Plugin: Map[String, String]
 )
 
 pub fun Type::as_string(self: Type) -> String {
@@ -16,11 +16,16 @@ pub fun Type::as_string(self: Type) -> String {
         Application(_) { return "application" }
         Library { return "library" }
         DynLibrary { return "dyn_library" }
-        Plugin { return "plugin" }
+        Plugin(_) { return "plugin" }
     }
 }
 
-fun Type::parse(text: String, main: Option[String], parsing: String) -> Type {
+fun Type::parse(
+    text: String, 
+    main: Option[String], 
+    macros: Option[Map[String, String]],
+    parsing: String
+) -> Type {
     match text {
         "application" {
             match main {
@@ -41,7 +46,7 @@ fun Type::parse(text: String, main: Option[String], parsing: String) -> Type {
         }
         "library" { return Type::Library }
         "dyn_library" { return Type::DynLibrary }
-        "plugin" { return Type::Plugin }
+        "plugin" { return Type::Plugin(macros |> unwrap_or_else(Map::empty)) }
         _ {
             log::error_while(
                 parsing, 
@@ -143,10 +148,21 @@ pub fun Config::parse(text: String, path: String) -> Config {
         |> unwrap_or_else(|| panic(error_missing("name")))
     val main: Option[String] = props
         |> get("main") |> and_then(Json::get_string)
+    val macros: Option[Map[String, String]] = props
+        |> get("macros") |> and_then(Json::get_object)
+        |> map[Map[String, Json], Map[String, String]](|j_macros| j_macros
+            |> entries()
+            |> map[Pair[String, Json], Pair[String, String]](|j_macro| {
+                val path: String = j_macro.second |> get_string()
+                    |> unwrap_or_else(|| panic(error_missing("macros")))
+                return Pair(j_macro.first, path)
+            })
+            |> Map::collect()
+        )
     val type: Type = props
         |> get("type") |> and_then(Json::get_string)
         |> unwrap_or_else(|| panic(error_missing("type")))
-        |> Type::parse(main, parsing)
+        |> Type::parse(main, macros, parsing)
     val backend: Backend = props
         |> get("backend") |> and_then(Json::get_string)
         |> unwrap_or_else(|| panic(error_missing("backend")))

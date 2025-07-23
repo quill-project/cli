@@ -1,7 +1,7 @@
 
 mod quill::cli::build
 
-use quill::cli::(log, pkg, files, files::catch_os_while, config::*)
+use quill::cli::(log, pkg, files, files::catch_os_while, config::*, Plugin)
 use os::(fs, fs::path, Process)
 use terminal::io::*
 
@@ -22,6 +22,7 @@ pub fun Mode::parse(text: String) -> Mode {
 }
 
 pub val OUT_DIR: String = ".quill"
+pub val PLUGIN_DIR: String = "plugins"
 pub val CONFIG_FILE_LOC: String = "quill.pkg.json"
 pub val QUILL_SRC_DIR: String = "src"
 pub val C_SRC_DIR: String = "src-c"
@@ -58,6 +59,7 @@ fun clone_dependency(url: String) -> String {
 // Collects all the dependencies (recursively) of the given package
 fun collect_dependencies(
     path: String, config: pkg::Config, mode: Mode,
+    plugins: mut List[Plugin],
     out: mut List[Pair[pkg::Config, String]]
 ) {
     for dep: config.dependencies |> values() {
@@ -88,41 +90,50 @@ fun collect_dependencies(
         match dep_config.type {
             Application(_) | Library {
                 out |> push(Pair(dep_config, dep_path))
-                collect_dependencies(dep_path, dep_config, mode, out)
+                collect_dependencies(dep_path, dep_config, mode, plugins, out)
             }
             DynLibrary {
                 val abs_out_dir: String = path::canonicalize(OUT_DIR)
                     |> catch_os_while[String]("getting output path")
                 val og_cwd: String = path::get_cwd()
                 path::set_cwd(dep_path) |> unwrap()
-                build_dyn(dep_config, mode, abs_out_dir)
+                build_dyn(dep_config, mode, abs_out_dir, FORCE_RECOMP)
                 path::set_cwd(og_cwd) |> unwrap()
             }
-            Plugin {
-                // TODO! not yet implemented
+            Plugin(macros) {
+                val abs_out_dir: String = path::join(OUT_DIR, PLUGIN_DIR)
+                    |> path::canonicalize()
+                    |> catch_os_while[String]("getting output path")
+                val og_cwd: String = path::get_cwd()
+                path::set_cwd(dep_path) |> unwrap()
+                val bin = build_dyn(dep_config, mode, abs_out_dir, FORCE_RECOMP)
+                    |> path::canonicalize()
+                    |> catch_os_while[String]("getting plugin path")
+                path::set_cwd(og_cwd) |> unwrap()
+                plugins |> push(Plugin::from(bin, macros))
             }
         }
     }
 }
 
 pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
-    if !fs::is_dir(OUT_DIR) {
-        fs::create_dir(OUT_DIR)
-            |> catch_os_while[Unit]("creating output directory")
-    }
+    files::ensure_dir_exists(OUT_DIR)
+    files::ensure_dir_exists(path::join(OUT_DIR, PLUGIN_DIR))
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
+    val plugins: mut List[Plugin] = List::empty()
     packages |> push(Pair(config, "."))
-    collect_dependencies(".", config, mode, packages)
+    collect_dependencies(".", config, mode, plugins, packages)
     log::compiling(config.name)
     val quill_out: mut Set[String] = Set::empty()
     compile_quill(
         packages, Option::Some(main), config.backend, OUT_DIR, config.name, 
-        quill_out
+        quill_out, plugins
     )
     match config.backend {
         C { 
             compile_c(
-                packages, quill_out, mode, OUT_DIR, config.name, !BUILD_C_DYN
+                packages, quill_out, mode, OUT_DIR, config.name, 
+                !BUILD_C_DYN, FORCE_RECOMP
             ) 
         }
         Js {}
@@ -131,45 +142,48 @@ pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
     log::compiled(config.name)
 }
 
-pub fun build_dyn(config: pkg::Config, mode: Mode, out_dir: String) {
-    if !fs::is_dir(out_dir) {
-        fs::create_dir(out_dir)
-            |> catch_os_while[Unit]("creating output directory")
-    }
+pub fun build_dyn(
+    config: pkg::Config, mode: Mode, out_dir: String, force_recomp: Bool
+) -> String {
+    files::ensure_dir_exists(OUT_DIR)
+    files::ensure_dir_exists(path::join(OUT_DIR, PLUGIN_DIR))
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
+    val plugins: mut List[Plugin] = List::empty()
     packages |> push(Pair(config, "."))
-    collect_dependencies(".", config, mode, packages)
+    collect_dependencies(".", config, mode, plugins, packages)
     log::compiling(config.name)
     val quill_out: mut Set[String] = Set::empty()
     compile_quill(
         packages, Option::None, config.backend, out_dir, config.name, 
-        quill_out
+        quill_out, plugins
     )
+    mut out: String = ""
     match config.backend {
         C { 
-            compile_c(
-                packages, quill_out, mode, out_dir, config.name, BUILD_C_DYN
+            out = compile_c(
+                packages, quill_out, mode, out_dir, config.name, 
+                BUILD_C_DYN, force_recomp
             ) 
         }
         Js {}
         Any { return panic("unreachable") }
     }
     log::compiled(config.name)
+    return out
 }
 
 pub fun bundle(config: pkg::Config, main: List[String]) {
-    if !fs::is_dir(OUT_DIR) {
-        fs::create_dir(OUT_DIR)
-            |> catch_os_while[Unit]("creating output directory")
-    }
+    files::ensure_dir_exists(OUT_DIR)
+    files::ensure_dir_exists(path::join(OUT_DIR, PLUGIN_DIR))
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
+    val plugins: mut List[Plugin] = List::empty()
     packages |> push(Pair(config, "."))
-    collect_dependencies(".", config, Mode::Debug, packages)
+    collect_dependencies(".", config, Mode::Debug, plugins, packages)
     log::compiling(config.name)
     val quill_out: mut Set[String] = Set::empty()
     compile_quill(
         packages, Option::Some(main), config.backend, OUT_DIR, 
-        config.name, quill_out
+        config.name, quill_out, plugins
     )
     match config.backend {
         C { bundle_c(packages, quill_out, OUT_DIR, config.name) }
@@ -193,7 +207,8 @@ fun compile_quill(
     backend: pkg::Backend, 
     out_dir: String, 
     name: String,
-    generated: mut Set[String]
+    generated: mut Set[String],
+    plugins: List[Plugin]
 ) {
     val unl_file_paths: mut Set[String] = Set::empty()
     for package: packages |> values() {
@@ -225,8 +240,13 @@ fun compile_quill(
                     val msgs: mut List[Message] = List::empty()
                     val tokens: mut Stream[Token]
                         = lexer::tokenize(path, content, msgs)
-                    val parsed: List[UntypedNode]
-                        = Parser::from(tokens, msgs) |> parse_file()
+                    val parser = Parser::from(tokens, msgs)
+                    plugins |> values() |> for_each(|plugin| {
+                        plugin.macros |> entries() |> for_each(|macro| {
+                            parser.macros |> add(macro)
+                        })
+                    })
+                    val parsed: List[UntypedNode] = parser |> parse_file()
                     nodes |> take(|n| {
                         n.value = n.value |> concat(parsed)
                     })
@@ -397,7 +417,8 @@ fun target_dll_ext(target: Target) -> String {
     }
 } 
 
-val BUILD_C_DYN: Bool = true
+pub val BUILD_C_DYN: Bool = true
+pub val FORCE_RECOMP: Bool = true
 
 fun compile_c(
     packages: mut List[Pair[pkg::Config, String]],
@@ -405,9 +426,14 @@ fun compile_c(
     mode: Mode,
     out_dir: String, 
     name: String,
-    as_dyn: Bool
-) {
+    as_dyn: Bool, force_recomp: Bool
+) -> String {
     val target: Target = find_c_target()
+    val out: String = path::join(out_dir, name)
+        |> concat(if as_dyn { target_dll_ext(target) } else { "" })
+    if !force_recomp && fs::is_file(out) { 
+        return out 
+    }
     val include_dirs: mut List[String] = List::empty()
     collect_c_files(packages, c_files, include_dirs)
     val args: mut List[String] = List::empty()
@@ -446,8 +472,6 @@ fun compile_c(
         }
     }
     args |> push("-o")
-    val out: String = path::join(out_dir, name)
-        |> concat(if as_dyn { target_dll_ext(target) } else { "" })
     args |> push(out)
     val comp = Process::spawn(cc_path(), args)
         |> catch_os_while[mut Process]("invoking C compiler")
@@ -457,6 +481,7 @@ fun compile_c(
             |> concat(comp |> read_stderr())
         log::error_while("compiling C code", output)
     }
+    return out
 }
 
 fun replace_c_includes(source: String, headers: Map[String, String]) -> String {

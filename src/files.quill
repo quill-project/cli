@@ -40,7 +40,7 @@ val APP_CONFIG_TEMPLATE: String = "\
     \"authors\": [_],
     \"description\": \"\",
     \"type\": \"application\",
-    \"main\": \"_\",
+    \"main\": \"_::main\",
     \"backend\": \"c\",
     \"dependencies\": [
         \"https://github.com/quill-project/std-c\"
@@ -61,12 +61,28 @@ val LIB_CONFIG_TEMPLATE: String = "\
 }
 "
 
+val PLUGIN_CONFIG_TEMPLATE: String = "\
+{
+    \"name\": \"_\",
+    \"authors\": [_],
+    \"description\": \"\",
+    \"type\": \"plugin\",
+    \"backend\": \"c\",
+    \"dependencies\": [
+        \"https://github.com/quill-project/std-c\",
+        \"https://github.com/quill-project/macro\"
+    ],
+    \"macros\": {
+        \"debug\": \"_::debug\"
+    }
+}
+"
+
 pub fun create_config(path: String, name: String, type: String) {
     val user: String = get_username_string()
     match type {
         "application" {
-            val main: String = name |> concat("::main")
-            val content: String = APP_CONFIG_TEMPLATE |> fmt(name, user, main)
+            val content: String = APP_CONFIG_TEMPLATE |> fmt(name, user, name)
             fs::write_file(content, path) 
                 |> catch_os_while[Unit]("creating package config")
         }
@@ -87,12 +103,8 @@ pub fun create_config(path: String, name: String, type: String) {
                 |> catch_os_while[Unit]("creating package config")
         }
         "plugin" {
-            val content: String = LIB_CONFIG_TEMPLATE |> fmt(
-                name, user, type, "c", 
-                "\"https://github.com/quill-project/std-c\""
-                    |> concat(",\n        ")
-                    |> concat("\"https://github.com/quill-project/macro\"")
-            )
+            val content: String = PLUGIN_CONFIG_TEMPLATE 
+                |> fmt(name, user, name)
             fs::write_file(content, path)
                 |> catch_os_while[Unit]("creating package config")
         }
@@ -131,21 +143,41 @@ fun add(a: Int, b: Int) -> Int {
 }
 "
 
+val PLUGIN_MAIN_TEMPLATE: String = "\
+
+mod _
+
+use macro::*
+
+pub fun debug(input: List[Token], ctx: Compiler) -> List[Token] {
+    ctx // unused
+    input |> values() 
+        |> map[Token, String](|t| t.content) 
+        |> join(\" \") 
+        |> println()
+    return input
+}
+"
+
 pub fun create_main_file(source_dir: String, name: String, type: String) {
+    mut path: String = ""
+    mut content: String = ""
     match type {
         "application" {
-            val path: String = path::join(source_dir, "main.quill")
-            val content: String = APP_MAIN_TEMPLATE |> fmt(name)
-            fs::write_file(content, path)
-                |> catch_os_while[Unit]("creating main file")
+            path = path::join(source_dir, "main.quill")
+            content = APP_MAIN_TEMPLATE |> fmt(name)
+        }
+        "plugin" {
+            path = path::join(source_dir, name |> concat(".quill"))
+            content = PLUGIN_MAIN_TEMPLATE |> fmt(name)
         }
         _ {
-            val path: String = path::join(source_dir, name |> concat(".quill"))
-            val content: String = LIB_MAIN_TEMPLATE |> fmt(name)
-            fs::write_file(content, path)
-                |> catch_os_while[Unit]("creating main file")
+            path = path::join(source_dir, name |> concat(".quill"))
+            content = LIB_MAIN_TEMPLATE |> fmt(name)
         }
     }
+    fs::write_file(content, path)
+        |> catch_os_while[Unit]("creating main file")
 }
 
 pub fun nuke_dir(dir: String) {
@@ -176,4 +208,10 @@ pub fun read_dir_rec(dir: String, out: mut Set[String]) {
             out |> add(file)
         }
     }
+}
+
+pub fun ensure_dir_exists(dir: String) {
+    if fs::file_exists(dir) { return unit }
+    fs::create_dir(dir)
+        |> catch_os_while[Unit]("creating directory '_'" |> fmt(dir))
 }

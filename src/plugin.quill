@@ -1,0 +1,218 @@
+
+mod quill::cli
+
+use quill::(token::(Token, TokenType), Source)
+use quill::cli::pkg
+use os::DynLib
+
+fun quill_to_macro_token_type(type: TokenType) -> Option[macro::TokenKind] {
+    match type {
+        Whitespace | LineComment { return Option::None }
+
+        Identifier { return Option::Some(macro::TokenKind::Ident) }
+        KeywordIf | KeywordElse | KeywordExt | KeywordFun | KeywordReturn |
+        KeywordContinue | KeywordBreak | KeywordVal | KeywordMut |
+        KeywordMod | KeywordUse | KeywordAs | KeywordPub | KeywordStruct |
+        KeywordEnum | KeywordMatch | KeywordWhile | KeywordFor {
+            return Option::Some(macro::TokenKind::Keyword)
+        }
+        IntLiteral { return Option::Some(macro::TokenKind::Int) }
+        FloatLiteral { return Option::Some(macro::TokenKind::Float) }
+        BoolLiteral { return Option::Some(macro::TokenKind::Bool) }
+        UnitLiteral { return Option::Some(macro::TokenKind::Unit) }
+        StringLiteral { return Option::Some(macro::TokenKind::String) }
+
+        TripleDots { return Option::Some(macro::TokenKind::TripleDots) }
+
+        LessThanEqual { return Option::Some(macro::TokenKind::LessEq) }
+        GreaterThanEqual { return Option::Some(macro::TokenKind::GreaterEq) }
+        DoubleEqual { return Option::Some(macro::TokenKind::DoubleEq) }
+        NotEqual { return Option::Some(macro::TokenKind::NotEq) }
+        ArrowRight { return Option::Some(macro::TokenKind::ArrowRight) }
+        DoubleAmpersand { return Option::Some(macro::TokenKind::DoubleAmp) }
+        DoublePipe { return Option::Some(macro::TokenKind::DoublePipe) }
+        PathSeparator { return Option::Some(macro::TokenKind::PathSep) }
+        Triangle { return Option::Some(macro::TokenKind::Triangle) }
+
+        ParenOpen { return Option::Some(macro::TokenKind::ParenOpen) }
+        ParenClose { return Option::Some(macro::TokenKind::ParenClose) }
+        BraceOpen { return Option::Some(macro::TokenKind::BraceOpen) }
+        BraceClose { return Option::Some(macro::TokenKind::BraceClose) }
+        BracketOpen { return Option::Some(macro::TokenKind::BracketOpen) }
+        BracketClose { return Option::Some(macro::TokenKind::BracketClose) }
+        LessThan { return Option::Some(macro::TokenKind::Less) }
+        GreaterThan { return Option::Some(macro::TokenKind::Greater) }
+        Equal { return Option::Some(macro::TokenKind::Eq) }
+        Plus { return Option::Some(macro::TokenKind::Plus) }
+        Minus { return Option::Some(macro::TokenKind::Minus) }
+        Asterisk { return Option::Some(macro::TokenKind::Asterisk) }
+        Slash { return Option::Some(macro::TokenKind::Slash) }
+        Percent { return Option::Some(macro::TokenKind::Percent) }
+        Colon { return Option::Some(macro::TokenKind::Colon) }
+        Comma { return Option::Some(macro::TokenKind::Comma) }
+        ExclamationMark { return Option::Some(macro::TokenKind::Excl) }
+        Dot { return Option::Some(macro::TokenKind::Dot) }
+        Pipe { return Option::Some(macro::TokenKind::Pipe) }
+        At { return Option::Some(macro::TokenKind::At) }
+
+        EndOfFile | Invalid { return Option::None }
+    }
+}
+
+fun quill_to_macro_token(t: Token) -> Option[macro::Token]
+    = t.type 
+    |> quill_to_macro_token_type()
+    |> map[macro::TokenKind, macro::Token](|k| macro::Token(k, t.content))
+
+fun quill_to_macro_token_list(t: List[Token]) -> Option[List[macro::Token]]
+    = t 
+    |> values()
+    |> fold[Token, Option[mut List[macro::Token]]](
+        Option::Some(List::empty()), 
+        |acc, t| acc |> and_then(|tokens| t
+            |> quill_to_macro_token()
+            |> map[macro::Token, mut List[macro::Token]](|mt| {
+                tokens |> push(mt)
+                return tokens
+            })
+        )
+    )
+
+fun macro_to_quill_token(t: macro::Token, source: Source) -> Token {
+    val make: Fun(TokenType) -> Token = |type| Token(type, t.content, source)
+    match t.kind {
+        Ident { return make(TokenType::Identifier) }
+        Int { return make(TokenType::IntLiteral) }
+        Float { return make(TokenType::FloatLiteral) }
+        Bool { return make(TokenType::BoolLiteral) }
+        Unit { return make(TokenType::UnitLiteral) }
+        String { return make(TokenType::StringLiteral) }
+
+        TripleDots { return make(TokenType::TripleDots) }
+
+        LessEq { return make(TokenType::LessThanEqual) }
+        GreaterEq { return make(TokenType::GreaterThanEqual) }
+        DoubleEq { return make(TokenType::DoubleEqual) }
+        NotEq { return make(TokenType::NotEqual) }
+        ArrowRight { return make(TokenType::ArrowRight) }
+        DoubleAmp { return make(TokenType::DoubleAmpersand) }
+        DoublePipe { return make(TokenType::DoublePipe) }
+        PathSep { return make(TokenType::PathSeparator) }
+        Triangle { return make(TokenType::Triangle) }
+
+        ParenOpen { return make(TokenType::ParenOpen) }
+        ParenClose { return make(TokenType::ParenClose) }
+        BraceOpen { return make(TokenType::BraceOpen) }
+        BraceClose { return make(TokenType::BraceClose) }
+        BracketOpen { return make(TokenType::BracketOpen) }
+        BracketClose { return make(TokenType::BracketClose) }
+        
+        Less { return make(TokenType::LessThan) }
+        Greater { return make(TokenType::GreaterThan) }
+        Eq { return make(TokenType::Equal) }
+        Plus { return make(TokenType::Plus) }
+        Minus { return make(TokenType::Minus) }
+        Asterisk { return make(TokenType::Asterisk) }
+        Slash { return make(TokenType::Slash) }
+        Percent { return make(TokenType::Percent) }
+        Colon { return make(TokenType::Colon) }
+        Comma { return make(TokenType::Comma) }
+        Excl { return make(TokenType::ExclamationMark) }
+        Dot { return make(TokenType::Dot) }
+        Pipe { return make(TokenType::Pipe) }
+        At { return make(TokenType::At) }
+
+        Keyword { match t.content {
+            "if" { return make(TokenType::KeywordIf) }
+            "else" { return make(TokenType::KeywordElse) }
+            "ext" { return make(TokenType::KeywordExt) }
+            "fun" { return make(TokenType::KeywordFun) }
+            "return" { return make(TokenType::KeywordReturn) }
+            "continue" { return make(TokenType::KeywordContinue) }
+            "break" { return make(TokenType::KeywordBreak) }
+            "val" { return make(TokenType::KeywordVal) }
+            "mut" { return make(TokenType::KeywordMut) }
+            "mod" { return make(TokenType::KeywordMod) }
+            "use" { return make(TokenType::KeywordUse) }
+            "as" { return make(TokenType::KeywordAs) }
+            "pub" { return make(TokenType::KeywordPub) }
+            "struct" { return make(TokenType::KeywordStruct) }
+            "enum" { return make(TokenType::KeywordEnum) }
+            "match" { return make(TokenType::KeywordMatch) }
+            "while" { return make(TokenType::KeywordWhile) }
+            "for" { return make(TokenType::KeywordFor) }
+            _ { return make(TokenType::Invalid) }
+        } }
+    }
+}
+
+fun macro_to_quill_token_list(t: List[macro::Token], at: Source) -> List[Token]
+    = t 
+    |> values() 
+    |> map[macro::Token, Token](|mt| macro_to_quill_token(mt, at)) 
+    |> List::collect()
+
+val MACRO_COMP_CONTEXT: macro::Compiler = macro::Compiler::impl(
+    // tokenize: Fun(String) -> Option[List[Token]]
+    |text| panic("not yet implemented"), // TODO!
+    
+    // parse_type: Fun(List[Token]) -> Option[Node]
+    |tokens| panic("not yet implemented"), // TODO!
+    
+    // parse_expr: Fun(List[Token]) -> Option[Node]
+    |tokens| panic("not yet implemented"), // TODO!
+    
+    // parse_stmt: Fun(List[Token]) -> Option[Node]
+    |tokens| panic("not yet implemented"), // TODO!
+
+    // parse_decl: Fun(List[Token]) -> Option[Node]
+    |tokens| panic("not yet implemented") // TODO!
+)
+
+pub struct Plugin(
+    lib_path: String,
+    macros: Map[String, Fun(List[Token], Source) -> List[Token]]
+)
+
+fun translate_macro(
+    f: Fun(List[macro::Token], macro::Compiler) -> List[macro::Token]
+) -> Fun(List[Token], Source) -> List[Token]
+    = |inp_t, at| {
+        match quill_to_macro_token_list(inp_t) {
+            Some(m_inp_t) {
+                val m_out_t: List[macro::Token] = f(m_inp_t, MACRO_COMP_CONTEXT)
+                return macro_to_quill_token_list(m_out_t, at)
+            }
+            None {
+                return List::of(Token(TokenType::Invalid, "", at))
+            }
+        }
+    }
+
+pub fun Plugin::from(
+    lib_path: String, macro_paths: Map[String, String]
+) -> Plugin {
+    val lib: DynLib = DynLib::from_file(lib_path)
+        |> unwrap_or_else(|| {
+            "reading compiled plugin '_'" |> fmt(lib_path) 
+                |> log::error_while("unable to read plugin")
+            return panic("'error_while' should exit")
+        })
+    val macros: Map[String, Fun(List[Token], Source) -> List[Token]]
+        = macro_paths |> entries()
+        |> map(|macro_path| {
+            val f = lib 
+                |> get[Fun(List[macro::Token], macro::Compiler) -> List[macro::Token]](
+                    macro_path.second
+                )
+                |> unwrap_or_else(|| {
+                    "getting reference to macro '_' in plugin '_'" 
+                        |> fmt(macro_path.second, lib_path) 
+                        |> log::error_while("function does not exist")
+                    return panic("'error_while' should exit")
+                })
+            return Pair(macro_path.first, translate_macro(f))
+        })
+        |> Map::collect()
+    return Plugin(lib_path, macros)
+}

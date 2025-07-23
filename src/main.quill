@@ -18,9 +18,9 @@ fun generate_usage_info() -> String {
         |> concat("\n")
     val o = StringBuilder::empty()
     o |> push(header("USAGE"))
-    o |> push(item(" _ new ('application'/'library'/'plugin') (NAME) " |> fmt(self_exec)))
+    o |> push(item(" _ new ('application'/'library'/'dyn_library'/'plugin') (NAME) " |> fmt(self_exec)))
     o |> push(descr("\tCreates a new package with the given type and name in a new directory of the same name."))
-    o |> push(item(" _ init ('application'/'library'/'plugin') " |> fmt(self_exec)))
+    o |> push(item(" _ init ('application'/'library'/'dyn_library'/'plugin') " |> fmt(self_exec)))
     o |> push(descr("\tInitializes the current working directory as a new package with the given type."))
     o |> push(descr("\tThe name of the current working directory is used as the package name."))
     o |> push(item(" _ build ('debug'/'release') " |> fmt(self_exec)))
@@ -88,7 +88,9 @@ fun main() {
                     build::build(config, mode, main)
                 }
                 DynLibrary {
-                    build::build_dyn(config, mode, build::OUT_DIR)
+                    build::build_dyn(
+                        config, mode, build::OUT_DIR, build::FORCE_RECOMP
+                    )
                 }
                 _ {
                     "'_' is not an application or dynamic library!" 
