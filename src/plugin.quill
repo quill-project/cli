@@ -1,7 +1,7 @@
 
 mod quill::cli
 
-use quill::(token::(Token, TokenType), Source)
+use quill::(token::(Token, TokenType), Source, Message, lexer, ast, parser)
 use quill::cli::pkg
 use os::DynLib
 
@@ -152,21 +152,372 @@ fun macro_to_quill_token_list(t: List[macro::Token], at: Source) -> List[Token]
     |> map[macro::Token, Token](|mt| macro_to_quill_token(mt, at)) 
     |> List::collect()
 
-val MACRO_COMP_CONTEXT: macro::Compiler = macro::Compiler::impl(
-    // tokenize: Fun(String) -> Option[List[Token]]
-    |text| panic("not yet implemented"), // TODO!
-    
-    // parse_type: Fun(List[Token]) -> Option[Node]
-    |tokens| panic("not yet implemented"), // TODO!
-    
-    // parse_expr: Fun(List[Token]) -> Option[Node]
-    |tokens| panic("not yet implemented"), // TODO!
-    
-    // parse_stmt: Fun(List[Token]) -> Option[Node]
-    |tokens| panic("not yet implemented"), // TODO!
+fun quill_to_macro_node(n: ast::UntypedNode) -> Option[macro::Node] {
+    val biop_to_m: Fun(Pair[ast::UntypedNode, ast::UntypedNode]) -> Option[Pair[macro::Node, macro::Node]] 
+    = |nodes| {
+        match quill_to_macro_node(nodes.first) {
+            Some(a) { match quill_to_macro_node(nodes.second) {
+                Some(b) { return Option::Some(Pair(a, b)) }
+                None {}
+            } }
+            None {}
+        }
+        return Option::None
+    }
+    val inv_to_m: Fun(ast::Invocation[ast::UntypedNode]) -> Option[Pair[macro::Node, List[macro::Node]]]
+    = |inv| {
+        match quill_to_macro_node(inv.invoked) {
+            Some(i) { match quill_to_macro_node_list(inv.args) {
+                Some(a) { return Option::Some(Pair(i, a)) }
+                None {}
+            } }
+            None {}
+        }
+        return Option::None
+    }
+    val args_to_m: Fun(List[Pair[String, ast::UntypedNode]]) -> Option[List[Pair[String, macro::Node]]]
+    = |members| members |> values()
+        |> map(|m| m.second)
+        |> List::collect[ast::UntypedNode]()
+        |> quill_to_macro_node_list()
+        |> map[List[macro::Node], List[Pair[String, macro::Node]]](
+            |mem_types| mem_types
+                |> indices()
+                |> map[Int, Pair[String, macro::Node]](|i| Pair(
+                    (members |> at(i)).first, (mem_types |> at(i))
+                ))
+                |> List::collect()
+        )
+    match n.value {
+        TypeRef(Pair(mutable, ast::PathRef(path, o_t_args))) {
+            mut m_t_args: Option[List[macro::Node]] = Option::None
+            match o_t_args {
+                Some(t_args) { match quill_to_macro_node_list(t_args) {
+                    Some(args) { m_t_args = Option::Some(args) }
+                    None { return Option::None }
+                } }
+                None {}
+            }
+            return Option::Some(macro::Node::NamedType(
+                Triplet(mutable, path, m_t_args)
+            ))
+        }
+        FunctionType(ast::FunctionType(args, o_ret)) {
+            mut m_args: List[macro::Node] = List::empty()
+            match quill_to_macro_node_list(args) {
+                Some(a) { m_args = a }
+                None { return Option::None }
+            }
+            mut m_ret: macro::Node = macro::Node::Unit
+            match o_ret {
+                Some(ret) {
+                    match quill_to_macro_node(ret) {
+                        Some(r) { m_ret = r }
+                        None { return Option::None }
+                    }
+                }
+                None { m_ret = macro::Node::NamedType(
+                    Triplet(false, List::of("Unit"), Option::None)
+                ) }
+            }
+            return Option::Some(macro::Node::FuncType(Pair(m_args, m_ret)))
+        }
 
-    // parse_decl: Fun(List[Token]) -> Option[Node]
-    |tokens| panic("not yet implemented") // TODO!
+        PathRef(ast::PathRef(path, o_t_args)) {
+            mut m_t_args: Option[List[macro::Node]] = Option::None
+            match o_t_args {
+                Some(t_args) { match quill_to_macro_node_list(t_args) {
+                    Some(args) { m_t_args = Option::Some(args) }
+                    None { return Option::None }
+                } }
+                None {}
+            }
+            return Option::Some(macro::Node::Path(Pair(path, m_t_args)))
+        }
+        VariableRef(_) {
+            // not returned by parser - requires type checking
+            return Option::None
+        }
+        Int(v) { return Option::Some(macro::Node::Int(v)) }
+        Float(v) { return Option::Some(macro::Node::Float(v)) }
+        Bool(v) { return Option::Some(macro::Node::Bool(v)) }
+        Unit { return Option::Some(macro::Node::Unit) }
+        String(v) { return Option::Some(macro::Node::String(v)) }
+        Closure(ast::Closure(args, _, _, body)) {
+            mut m_body: List[macro::Node] = List::empty()
+            match quill_to_macro_node_list(body) {
+                Some(b) { m_body = b }
+                None { return Option::None }
+            }
+            return Option::Some(macro::Node::Closure(Pair(args, m_body)))
+        }
+
+        Add(o) { return biop_to_m(o) |> map(|m| macro::Node::Add(m)) }
+        Subtract(o) { return biop_to_m(o) |> map(|m| macro::Node::Subtract(m)) }
+        Multiply(o) { return biop_to_m(o) |> map(|m| macro::Node::Multiply(m)) }
+        Divide(o) { return biop_to_m(o) |> map(|m| macro::Node::Divide(m)) }
+        Remainder(o) { return biop_to_m(o) |> map(|m| macro::Node::Remainder(m)) }
+        LessThan(o) { return biop_to_m(o) |> map(|m| macro::Node::Less(m)) }
+        GreaterThan(o) { return biop_to_m(o) |> map(|m| macro::Node::Greater(m)) }
+        LessThanEqual(o) { return biop_to_m(o) |> map(|m| macro::Node::LessEq(m)) }
+        GreaterThanEqual(o) { return biop_to_m(o) |> map(|m| macro::Node::GreaterEq(m)) }
+        Equal(o) { return biop_to_m(o) |> map(|m| macro::Node::Eq(m)) }
+        NotEqual(o) { return biop_to_m(o) |> map(|m| macro::Node::NotEq(m)) }
+        Negate(o) { return quill_to_macro_node(o) |> map(|m| macro::Node::Negate(m)) }
+        Not(o) { return quill_to_macro_node(o) |> map(|m| macro::Node::Not(m)) }
+        Member(Pair(o, mem)) { return quill_to_macro_node(o) 
+            |> map(|m| macro::Node::Member(Pair(m, mem))) 
+        }
+        Call(i) { return inv_to_m(i) |> map(|m| macro::Node::Invocation(m)) }
+        PipedCall(i) { return inv_to_m(i) |> map(|m| macro::Node::PipedInvocation(m)) }
+        NamedCall(_) | 
+        StructInit(_) | 
+        EnumInit(_) {
+            // not returned by parser - require type checking
+            return Option::None
+        }
+        IfExpr(ast::IfExpr(cond, if_val, else_val)) {
+            match quill_to_macro_node(cond) {
+                Some(m_cond) { match quill_to_macro_node(if_val) {
+                    Some(m_if_val) { match quill_to_macro_node(else_val) {
+                        Some(m_else_val) {
+                            return Option::Some(macro::Node::IfExpr(
+                                Triplet(m_cond, m_if_val, m_else_val)
+                            ))
+                        }
+                        None {}
+                    } }
+                    None {}
+                } }
+                None {}
+            }
+            return Option::None
+        }
+
+        LocalVariable(ast::LocalVariable(name, mutable, _, o_type, value)) {
+            mut m_type: Option[macro::Node] = Option::None
+            match o_type {
+                Some(type) { match quill_to_macro_node(type) {
+                    Some(t) { m_type = Option::Some(t) }
+                    None { return Option::None }
+                } } 
+                None {}
+            }
+            return quill_to_macro_node(value)
+                |> map(|v| macro::Node::LocalDecl(
+                    macro::LocalDecl(mutable, name, m_type, v)
+                ))
+        }
+        Assignment(o) { return biop_to_m(o) |> map(|m| macro::Node::Assign(m)) }
+        Return(o) { return quill_to_macro_node(o) |> map(|m| macro::Node::Return(m)) }
+        Continue { return Option::Some(macro::Node::Continue) }
+        Break { return Option::Some(macro::Node::Break) }
+        If(ast::If(cond, if_body, else_body)) {
+            match quill_to_macro_node(cond) {
+                Some(m_cond) { match quill_to_macro_node_list(if_body) {
+                    Some(m_if_body) { match quill_to_macro_node_list(else_body) {
+                        Some(m_else_body) {
+                            return Option::Some(macro::Node::IfStmt(
+                                Triplet(m_cond, m_if_body, m_else_body)
+                            ))
+                        }
+                        None {}
+                    } }
+                    None {}
+                } }
+                None {}
+            }
+            return Option::None
+        }
+        While(ast::While(cond, body)) {
+            match quill_to_macro_node(cond) {
+                Some(m_cond) { match quill_to_macro_node_list(body) {
+                    Some(m_body) {
+                        return Option::Some(macro::Node::While(
+                            Pair(m_cond, m_body)
+                        ))
+                    }
+                    None {}
+                } }
+                None {}
+            }
+            return Option::None
+        }
+        For(ast::For(name, _, in, body)) {
+            match quill_to_macro_node(in) {
+                Some(m_in) { match quill_to_macro_node_list(body) {
+                    Some(m_body) {
+                        return Option::Some(macro::Node::For(
+                            Triplet(name, m_in, m_body)
+                        ))
+                    }
+                    None {}
+                } }
+                None {}
+            }
+            return Option::None
+        }
+        Match(ast::Match(matched, branches)) {
+            val branch_to_m: Fun(ast::MatchBranch[ast::UntypedNode]) -> Option[Pair[List[macro::Node], List[macro::Node]]]
+            = |branch| {
+                val pats: List[ast::UntypedNode] = branch.patterns
+                    |> values()
+                    |> map(|p| p.node)
+                    |> List::collect()
+                mut m_pats: List[macro::Node] = List::empty()
+                match quill_to_macro_node_list(pats) {
+                    Some(p) { m_pats = p }
+                    None { return Option::None }
+                }
+                match quill_to_macro_node_list(branch.body) {
+                    Some(m_body) { return Option::Some(Pair(m_pats, m_body)) }
+                    None { return Option::None }
+                }
+            }
+            val branches_to_m: Fun() -> Option[List[Pair[List[macro::Node], List[macro::Node]]]]
+            = || branches
+                |> values()
+                |> fold[ast::MatchBranch[ast::UntypedNode], Option[mut List[Pair[List[macro::Node], List[macro::Node]]]]](
+                    Option::Some(List::empty()),
+                    |acc, b| acc |> and_then(|acc_b| branch_to_m(b) |> map(|mb| {
+                        acc_b |> push(mb)
+                        return acc_b
+                    }))
+                )
+            mut m_matched: macro::Node = macro::Node::Unit
+            match quill_to_macro_node(matched) {
+                Some(m) { m_matched = m }
+                None { return Option::None }
+            }
+            match branches_to_m() {
+                Some(b) {
+                    return Option::Some(macro::Node::Match(Pair(m_matched, b)))
+                }
+                None { return Option::None }
+            }
+        }
+
+        Module(p) { return Option::Some(macro::Node::Module(p)) }
+        Usages(u) { return Option::Some(macro::Node::Use(u)) }
+        GlobalVariable(ast::GlobalVariable(p, publ, muta, type, value, _)) {
+            match quill_to_macro_node(type) {
+                Some(m_type) { match quill_to_macro_node(value) {
+                    Some(m_value) {
+                        return Option::Some(macro::Node::GlobalDecl(
+                            macro::GlobalDecl(publ, muta, p, m_type, m_value)
+                        ))
+                    }
+                    None {}
+                } }
+                None {}
+            }
+            return Option::None
+        }
+        Function(ast::Function(p, publ, t_args, args, va, _, o_ret, body)) {
+            mut m_ret: Option[macro::Node] = Option::None
+            match o_ret {
+                Some(ret) { match quill_to_macro_node(ret) {
+                    Some(t) { m_ret = Option::Some(t) }
+                    None { return Option::None }
+                } }
+                None {}
+            }
+            mut m_body: List[macro::Node] = List::empty()
+            match quill_to_macro_node_list(body) {
+                Some(b) { m_body = b }
+                None { return Option::None }
+            }
+            return args_to_m(args) |> map(|m_args| macro::Node::FunctionDecl(
+                macro::FunctionDecl(publ, p, t_args, m_args, va, m_ret, m_body)
+            ))
+        }
+        ExternalFunction(ast::ExternalFunction(p, publ, t_args, args, va, o_ret, body)) {
+            mut m_ret: Option[macro::Node] = Option::None
+            match o_ret {
+                Some(ret) { match quill_to_macro_node(ret) {
+                    Some(t) { m_ret = Option::Some(t) }
+                    None { return Option::None }
+                } }
+                None {}
+            }
+            return args_to_m(args) |> map(|m_args| macro::Node::ExtFunctionDecl(
+                macro::ExtFunctionDecl(publ, p, t_args, m_args, va, m_ret, body)
+            ))
+        }
+        Structure(ast::CustomType(p, publ, t_args, members)) {
+            return args_to_m(members) |> map(|m_mems| macro::Node::StructDecl(
+                macro::StructDecl(publ, p, t_args, m_mems)
+            ))
+        }
+        Enumeration(ast::CustomType(p, publ, t_args, members)) {
+            return args_to_m(members) |> map(|m_mems| macro::Node::EnumDecl(
+                macro::EnumDecl(publ, p, t_args, m_mems)
+            ))
+        }
+
+        Invalid { return Option::None }
+    }
+}
+
+fun quill_to_macro_node_list(inp_nodes: List[ast::UntypedNode]) -> Option[List[macro::Node]]
+    = inp_nodes
+    |> values()
+    |> fold[ast::UntypedNode, Option[mut List[macro::Node]]](
+        Option::Some(List::empty()), 
+        |acc, n| acc |> and_then(|nodes| n
+            |> quill_to_macro_node()
+            |> map[macro::Node, mut List[macro::Node]](|mn| {
+                nodes |> push(mn)
+                return nodes
+            })
+        )
+    )
+
+fun token_list_as_stream(tokens: List[Token], end_at: Source) -> mut Stream[Token] {
+    val next_token: mut Sequence[Token] = tokens |> values()
+    return Stream::new(|| {
+        match next_token |> next() {
+            Some(t) { return t }
+            None { return Token(TokenType::EndOfFile, "", end_at) }
+        } 
+    })
+}
+
+fun parse_token_list(
+    m_tokens: List[macro::Token], f: Fun(mut parser::Parser) -> ast::UntypedNode
+) -> Option[macro::Node] {
+    val src: Source = Source("macro.quill", 0, 0)
+    val tokens: List[Token] = macro_to_quill_token_list(m_tokens, src)
+    val msgs: mut List[Message] = List::empty()
+    val node: ast::UntypedNode 
+        = parser::Parser::from(token_list_as_stream(tokens, src), msgs)
+        |> f()
+    return quill_to_macro_node(node)
+}
+
+val MACRO_COMP_CONTEXT: macro::Compiler = macro::Compiler::impl(
+    // tokenize: Fun(String) -> Option[List[macro::Token]]
+    |text| {
+        val msgs: mut List[Message] = List::empty()
+        val tokens: List[Token] = lexer::tokenize("macro.quill", text, msgs)
+            |> take_until(|t| t.type == TokenType::EndOfFile)
+            |> List::collect()
+        return quill_to_macro_token_list(tokens)
+    },
+    
+    // parse_type: Fun(List[macro::Token]) -> Option[macro::Node]
+    |m_tokens| parse_token_list(m_tokens, parser::parse_type),
+    
+    // parse_expr: Fun(List[macro::Token]) -> Option[macro::Node]
+    |m_tokens| parse_token_list(
+        m_tokens, |p| parser::parse_expression(p, Int::MAX)
+    ),
+    
+    // parse_stmt: Fun(List[macro::Token]) -> Option[macro::Node]
+    |m_tokens| parse_token_list(m_tokens, parser::parse_statement),
+
+    // parse_decl: Fun(List[macro::Token]) -> Option[macro::Node]
+    |m_tokens| parse_token_list(m_tokens, parser::parse_declaration)
 )
 
 pub struct Plugin(

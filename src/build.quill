@@ -106,11 +106,14 @@ fun collect_dependencies(
                     |> catch_os_while[String]("getting output path")
                 val og_cwd: String = path::get_cwd()
                 path::set_cwd(dep_path) |> unwrap()
-                val bin = build_dyn(dep_config, mode, abs_out_dir, FORCE_RECOMP)
+                val dyn_bin_path: String 
+                    = build_dyn(
+                        dep_config, Mode::Release, abs_out_dir, !FORCE_RECOMP
+                    )
                     |> path::canonicalize()
                     |> catch_os_while[String]("getting plugin path")
                 path::set_cwd(og_cwd) |> unwrap()
-                plugins |> push(Plugin::from(bin, macros))
+                plugins |> push(Plugin::from(dyn_bin_path, macros))
             }
         }
     }
@@ -133,7 +136,7 @@ pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
         C { 
             compile_c(
                 packages, quill_out, mode, OUT_DIR, config.name, 
-                !BUILD_C_DYN, FORCE_RECOMP
+                !BUILD_C_DYN
             ) 
         }
         Js {}
@@ -142,9 +145,18 @@ pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
     log::compiled(config.name)
 }
 
+pub val FORCE_RECOMP: Bool = true
+
 pub fun build_dyn(
     config: pkg::Config, mode: Mode, out_dir: String, force_recomp: Bool
 ) -> String {
+    match config.backend {
+        C {
+            val out: String = find_c_out_path(out_dir, config.name, BUILD_C_DYN)
+            if !force_recomp && fs::is_file(out) { return out }
+        }
+        _ {}
+    }
     files::ensure_dir_exists(OUT_DIR)
     files::ensure_dir_exists(path::join(OUT_DIR, PLUGIN_DIR))
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
@@ -161,9 +173,8 @@ pub fun build_dyn(
     match config.backend {
         C { 
             out = compile_c(
-                packages, quill_out, mode, out_dir, config.name, 
-                BUILD_C_DYN, force_recomp
-            ) 
+                packages, quill_out, mode, out_dir, config.name, BUILD_C_DYN
+            )
         }
         Js {}
         Any { return panic("unreachable") }
@@ -417,8 +428,13 @@ fun target_dll_ext(target: Target) -> String {
     }
 } 
 
+fun find_c_out_path(out_dir: String, name: String, as_dyn: Bool) -> String {
+    val target: Target = find_c_target()
+    return path::join(out_dir, name)
+        |> concat(if as_dyn { target_dll_ext(target) } else { "" })
+}
+
 pub val BUILD_C_DYN: Bool = true
-pub val FORCE_RECOMP: Bool = true
 
 fun compile_c(
     packages: mut List[Pair[pkg::Config, String]],
@@ -426,14 +442,10 @@ fun compile_c(
     mode: Mode,
     out_dir: String, 
     name: String,
-    as_dyn: Bool, force_recomp: Bool
+    as_dyn: Bool
 ) -> String {
     val target: Target = find_c_target()
-    val out: String = path::join(out_dir, name)
-        |> concat(if as_dyn { target_dll_ext(target) } else { "" })
-    if !force_recomp && fs::is_file(out) { 
-        return out 
-    }
+    val out: String = find_c_out_path(out_dir, name, as_dyn)
     val include_dirs: mut List[String] = List::empty()
     collect_c_files(packages, c_files, include_dirs)
     val args: mut List[String] = List::empty()
