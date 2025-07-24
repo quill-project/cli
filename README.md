@@ -22,16 +22,26 @@ For Windows I suggest using [w64devkit](https://github.com/skeeto/w64devkit) due
 ### Usage
 
 ```
-quill new ('application'/'library'/'plugin') (NAME)
+quill new (TYPE) (NAME)
 ```
 (e.g. `quill new application example`)   
 Creates a new directory `NAME` containinig a new Quill package of the given type.
-
+`NAME` should only contain `a-Z`, `0-9` and `_` and not start with a numeral.
+`TYPE` may be one of the following:
+- `application` - A normal executable application.
+- `library` - A library made of source code directly included when included.
+- `dyn_library` - A library that should be compiled separately to a standalone dynamically linked library when included (which may be loaded using [the `DynLib` type from the `os` package](https://github.com/quill-project/os))
+- `plugin` - A compiler plugin containing macros that should be compiled and loaded by the compiler when included.
 ```
-quill init ('application'/'library'/'plugin')
+quill init (TYPE)
 ```
 (e.g. `quill init library`)   
 Initializes the current directory as a new Quill package of the given type, using the name of the current directory as the package name.
+`TYPE` may be one of the following:
+- `application` - A normal executable application.
+- `library` - A library made of source code directly included when included.
+- `dyn_library` - A library that should be compiled separately to a standalone dynamically linked library when included (which may be loaded using [the `DynLib` type from the `os` package](https://github.com/quill-project/os))
+- `plugin` - A compiler plugin containing macros that should be loaded by the compiler when included.
 
 ```
 quill build ('debug'/'release')
@@ -57,7 +67,8 @@ The package configuration is a JSON file called `quill.pkg.json` at the root of 
 - `"name"` - The name of the package. Should only consist of `a-z`, `A-Z`, `0-9`, `-` and `_`.
 - `"authors"` - A list of authors.
 - `"decription"` - A description of the package.
-- `"type"` - The type of the package - `"application"`, `"library"` or `"plugin"`.
+- `"type"` - The type of the package - `"application"`, `"library"`, `"dyn_library"` or `"plugin"`.
 - `"main"` (if `"type": "application"`) - The full path of the main function.
 - `"backend"` - The backend to use - `"any"`, `"c"` or `"any"`.
 - `"dependencies"` - A list of dependency packages - each entry may either be a relative path to a package on disk or a git repository URL.
+- `"macros"` (if `"type": "plugin"`) - A map of all functions that should be exported as macros to the compiler (where the key is the export name and the value is the full path inside the package, e.g. `"derive": "std_derive::derive"`). The signatures of the referenced functions should match [`Fun(List[macro::Token], macro::Compiler) -> List[macro::Token]`](https://github.com/quill-project/macro).
