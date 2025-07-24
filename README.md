@@ -69,6 +69,6 @@ The package configuration is a JSON file called `quill.pkg.json` at the root of 
 - `"decription"` - A description of the package.
 - `"type"` - The type of the package - `"application"`, `"library"`, `"dyn_library"` or `"plugin"`.
 - `"main"` (if `"type": "application"`) - The full path of the main function.
-- `"backend"` - The backend to use - `"any"`, `"c"` or `"any"`.
+- `"backend"` - The backend to use - `"js"`, `"c"` or `"any"`.
 - `"dependencies"` - A list of dependency packages - each entry may either be a relative path to a package on disk or a git repository URL.
 - `"macros"` (if `"type": "plugin"`) - A map of all functions that should be exported as macros to the compiler (where the key is the export name and the value is the full path inside the package, e.g. `"derive": "std_derive::derive"`). The signatures of the referenced functions should match [`Fun(List[macro::Token], macro::Compiler) -> List[macro::Token]`](https://github.com/quill-project/macro).
