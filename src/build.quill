@@ -79,16 +79,16 @@ fun collect_dependencies(
         val dep_config_text: String = fs::read_file(dep_config_path)
             |> catch_os_while[String]("reading '_'" |> fmt(dep_config_path))
         val dep_config = pkg::Config::parse(dep_config_text, dep_config_path)
-        if !pkg::Backend::may_depend_on(config.backend, dep_config.backend) {
-            "'_' specifies '_' as its backend, meaning it cannot depend on the '_'-package with backend '_'!"
-                |> fmt(
-                    config.name, pkg::Backend::as_string(config.backend),
-                    dep_config.name, pkg::Backend::as_string(dep_config.backend)
-                )
-                |> log::error()
-        }
         match dep_config.type {
             Application(_) | Library {
+                if !pkg::Backend::may_depend_on(config.backend, dep_config.backend) {
+                    "'_' specifies '_' as its backend, meaning it cannot depend on the '_'-package with backend '_'!"
+                        |> fmt(
+                            config.name, pkg::Backend::as_string(config.backend),
+                            dep_config.name, pkg::Backend::as_string(dep_config.backend)
+                        )
+                        |> log::error()
+                }
                 out |> push(Pair(dep_config, dep_path))
                 collect_dependencies(dep_path, dep_config, mode, plugins, out)
             }

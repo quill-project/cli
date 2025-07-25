@@ -60,6 +60,7 @@ Deletes the `.quill` directory in the current directory (which contains the buil
 - `QUILL_GIT` - The git implementation to use (`git` by default)
 - `QUILL_CC` - The C compiler to use (`cc` by default)
 - `QUILL_CC_FLAGS` - Additional flags to pass to the C compiler
+- `QUILL_NPROC` - The number of cores the Quill compiler should use for compilation (`N - 2` by default, where `N` is the number of cores available)
 
 ### Package Configuration
 
