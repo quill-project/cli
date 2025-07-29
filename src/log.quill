@@ -1,62 +1,89 @@
 
 mod quill::cli::log
 
-val STATUS_CREATED: String   = " created   "
-val STATUS_CLONING: String   = " cloning   "
-val STATUS_CLONED: String    = " cloned    "
-val STATUS_COMPILING: String = " compiling "
-val STATUS_COMPILED: String  = " compiled  "
-val STATUS_CLEANED: String   = " cleaned   "
-val STATUS_ERROR: String     = " error!    "
-
 use terminal::(style::*, io::*)
+use conc::(Thread, Mutex, sleep)
 
-pub fun created(name: String) {
+fun clear_line() {
+    print("\x1b[K")
+}
+
+struct DuringAnimState(ps: Int, pe: Int, delta_ms: Int)
+
+val DURING_ANIM_STATE: mut DuringAnimState 
+    = DuringAnimState(0, 0, 100)
+
+fun show_status_during(during: String, fg: Int, bg: Int, text: String, f: Fun()) {
+    val is_done: mut Mutex[Bool] = Mutex::new(false)
+    val t = Thread::spawn(|| {
+        clear_line()
+        val s: mut DuringAnimState = DURING_ANIM_STATE
+        val pmin: Int = 0
+        val pmax: Int = during |> length()
+        while true {
+            val should_stop: Bool = is_done |> compute(|d| d)
+            if should_stop { break }
+            print("\t")
+            print(during |> slice_to(s.ps) |> style(fg, BOLD))
+            print(during |> slice(s.ps, s.pe) |> style(BLACK, bg, BOLD))
+            print(during |> slice_from(s.pe) |> style(fg, BOLD))
+            print(" ")
+            print(text)
+            print("\r")
+            if s.pe < pmax {
+                s.pe = s.pe + 1
+            } else {
+                s.ps = s.ps + 1 
+            }
+            if s.ps == pmax {
+                s.ps = pmin
+                s.pe = pmin
+            }
+            sleep(s.delta_ms)
+        }
+    })
+    f()
+    is_done |> take(|d| {
+        d.value = true
+    })
+    t |> join()
+}
+
+fun show_status_compl(type: String, text: String) {
     print("\t")
-    print(STATUS_CREATED |> style(BLACK, ON_GREEN))
+    print(type |> style(BRIGHT_GREEN, BOLD))
     print(" ")
-    print("package '_'" |> fmt(name))
+    print(text)
     print("\n")
 }
 
-pub fun cloning(name: String) {
-    print("\t")
-    print(STATUS_CLONING |> style(BLACK, ON_BRIGHT_MAGENTA))
-    print(" ")
-    print(name)
-    print("\r")
+val STATUS_CREATING: String  = "  creating "
+val STATUS_CREATED: String   = "   created "
+val STATUS_CLONING: String   = "   cloning "
+val STATUS_COMPILING: String = " compiling "
+val STATUS_COMPILED: String  = "  compiled "
+val STATUS_CLEANING: String  = "  cleaning "
+val STATUS_CLEANED: String   = "   cleaned "
+val STATUS_ERROR: String     = "     error "
+
+pub fun creating(name: String, f: Fun()) {
+    val status_text: String = "package '_'" |> fmt(name)
+    show_status_during(STATUS_CREATING, BRIGHT_CYAN, ON_BRIGHT_CYAN, status_text, f)
+    show_status_compl(STATUS_CREATED, status_text)
 }
 
-pub fun cloned(name: String) {
-    print("\t")
-    print(STATUS_CLONED |> style(WHITE, ON_BRIGHT_BLACK))
-    print(" ")
-    print(name |> style(BRIGHT_BLACK))
-    print("\n")
+pub fun cloning(name: String, f: Fun()) {
+    show_status_during(STATUS_CLONING, BRIGHT_BLUE, ON_BRIGHT_BLUE, name, f)
 }
 
-pub fun compiling(name: String) {
-    print("\t")
-    print(STATUS_COMPILING |> style(BLACK, ON_BRIGHT_MAGENTA))
-    print(" ")
-    print(name)
-    print("\r")
+pub fun compiling(name: String, f: Fun()) {
+    show_status_during(STATUS_COMPILING, BRIGHT_MAGENTA, ON_BRIGHT_MAGENTA, name, f)
+    show_status_compl(STATUS_COMPILED, name)
 }
 
-pub fun compiled(name: String) {
-    print("\t")
-    print(STATUS_COMPILED |> style(BLACK, ON_GREEN))
-    print(" ")
-    print(name)
-    print("\n")
-}
-
-pub fun cleaned() {
-    print("\t")
-    print(STATUS_CLEANED |> style(BLACK, ON_GREEN))
-    print(" ")
-    print("package directory")
-    print("\n")
+pub fun cleaning(f: Fun()) {
+    show_status_during(STATUS_CLEANING, BRIGHT_YELLOW, ON_BRIGHT_YELLOW, "package directory", f)
+    show_status_compl(STATUS_CLEANED, "package directory")
 }
 
 pub fun error(reason: String) {

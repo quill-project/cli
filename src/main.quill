@@ -59,10 +59,11 @@ fun main() {
             req_arg_c(4)
             val type: String = args |> at(2)
             val name: String = args |> at(3)
-            fs::create_dir(name)
-                |> catch_os_while[Unit]("creating package directory")
-            files::create_package(name, name, type)
-            log::created(name)
+            log::creating(name, || {
+                fs::create_dir(name)
+                    |> catch_os_while[Unit]("creating package directory")
+                files::create_package(name, name, type)
+            })
         }
         "init" {
             req_arg_c(3)
@@ -72,8 +73,9 @@ fun main() {
                 |> split(os::fs::path::FILE_SEP)
                 |> last() 
                 |> expect("'split' returns at least 1 element")
-            files::create_package(".", name, type)
-            log::created(name)
+            log::creating(name, || {
+                files::create_package(".", name, type)
+            })
         }
         "build" {
             req_arg_c(3)
@@ -117,9 +119,10 @@ fun main() {
         }
         "clean" {
             if fs::is_dir(build::OUT_DIR) {
-                files::nuke_dir(build::OUT_DIR)
+                log::cleaning(|| {
+                    files::nuke_dir(build::OUT_DIR)
+                })
             }
-            log::cleaned()
         }
         other {
             log::error("'_' is not a known subcommand!" |> fmt(other))

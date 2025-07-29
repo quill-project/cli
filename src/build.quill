@@ -42,17 +42,17 @@ fun mangle_url(url: String) -> String = url
 fun clone_dependency(url: String) -> String {
     val dest: String = OUT_DIR |> path::join(mangle_url(url))
     if fs::is_dir(dest) { return dest }
-    log::cloning(url)
-    val args: List[String] = List::of("clone", "--depth=1", url, dest)
-    val cloning = Process::spawn(git_path(), args)
-        |> catch_os_while[mut Process]("cloning '_'" |> fmt(url))
-    val clone_res: Int = cloning |> wait()
-    if clone_res != 0 {
-        val cloning_out: String = cloning |> read_stdout()
-            |> concat(cloning |> read_stderr())
-        log::error_while("cloning '_'" |> fmt(url), cloning_out)
-    }
-    log::cloned(url)
+    log::cloning(url, || {
+        val args: List[String] = List::of("clone", "--depth=1", url, dest)
+        val cloning = Process::spawn(git_path(), args)
+            |> catch_os_while[mut Process]("cloning '_'" |> fmt(url))
+        val clone_res: Int = cloning |> wait()
+        if clone_res != 0 {
+            val cloning_out: String = cloning |> read_stdout()
+                |> concat(cloning |> read_stderr())
+            log::error_while("cloning '_'" |> fmt(url), cloning_out)
+        }
+    })
     return dest
 }
 
@@ -119,30 +119,37 @@ fun collect_dependencies(
     }
 }
 
-pub fun build(config: pkg::Config, mode: Mode, main: List[String]) {
+pub fun build(config: pkg::Config, mode: Mode, main: List[String]) -> String {
     files::ensure_dir_exists(OUT_DIR)
     files::ensure_dir_exists(path::join(OUT_DIR, PLUGIN_DIR))
     val packages: mut List[Pair[pkg::Config, String]] = List::empty()
     val plugins: mut List[Plugin] = List::empty()
     packages |> push(Pair(config, "."))
     collect_dependencies(".", config, mode, plugins, packages)
-    log::compiling(config.name)
-    val quill_out: mut Set[String] = Set::empty()
-    compile_quill(
-        packages, Option::Some(main), config.backend, OUT_DIR, config.name, 
-        quill_out, plugins
-    )
-    match config.backend {
-        C { 
-            compile_c(
-                packages, quill_out, mode, OUT_DIR, config.name, 
-                !BUILD_C_DYN
-            ) 
+    mut out: String = ""
+    log::compiling(config.name, || {
+        val quill_out: mut Set[String] = Set::empty()
+        compile_quill(
+            packages, Option::Some(main), config.backend, OUT_DIR, config.name, 
+            quill_out, plugins
+        )
+        match config.backend {
+            C { 
+                out = compile_c(
+                    packages, quill_out, mode, OUT_DIR, config.name, 
+                    !BUILD_C_DYN
+                ) 
+            }
+            Js {
+                out = quill_out 
+                    |> values() 
+                    |> next()
+                    |> expect("JS codegen resulted in no files!")
+            }
+            Any { return panic("unreachable") }
         }
-        Js {}
-        Any { return panic("unreachable") }
-    }
-    log::compiled(config.name)
+    })
+    return out
 }
 
 pub val FORCE_RECOMP: Bool = true
@@ -163,23 +170,23 @@ pub fun build_dyn(
     val plugins: mut List[Plugin] = List::empty()
     packages |> push(Pair(config, "."))
     collect_dependencies(".", config, mode, plugins, packages)
-    log::compiling(config.name)
-    val quill_out: mut Set[String] = Set::empty()
-    compile_quill(
-        packages, Option::None, config.backend, out_dir, config.name, 
-        quill_out, plugins
-    )
     mut out: String = ""
-    match config.backend {
-        C { 
-            out = compile_c(
-                packages, quill_out, mode, out_dir, config.name, BUILD_C_DYN
-            )
+    log::compiling(config.name, || {
+        val quill_out: mut Set[String] = Set::empty()
+        compile_quill(
+            packages, Option::None, config.backend, out_dir, config.name, 
+            quill_out, plugins
+        )
+        match config.backend {
+            C { 
+                out = compile_c(
+                    packages, quill_out, mode, out_dir, config.name, BUILD_C_DYN
+                )
+            }
+            Js {}
+            Any { return panic("unreachable") }
         }
-        Js {}
-        Any { return panic("unreachable") }
-    }
-    log::compiled(config.name)
+    })
     return out
 }
 
@@ -190,17 +197,17 @@ pub fun bundle(config: pkg::Config, main: List[String]) {
     val plugins: mut List[Plugin] = List::empty()
     packages |> push(Pair(config, "."))
     collect_dependencies(".", config, Mode::Debug, plugins, packages)
-    log::compiling(config.name)
-    val quill_out: mut Set[String] = Set::empty()
-    compile_quill(
-        packages, Option::Some(main), config.backend, OUT_DIR, 
-        config.name, quill_out, plugins
-    )
-    match config.backend {
-        C { bundle_c(packages, quill_out, OUT_DIR, config.name) }
-        _ { log::error("'bundle' is not supported for this backend!") }
-    }
-    log::compiled(config.name)
+    log::compiling(config.name, || {
+        val quill_out: mut Set[String] = Set::empty()
+        compile_quill(
+            packages, Option::Some(main), config.backend, OUT_DIR, 
+            config.name, quill_out, plugins
+        )
+        match config.backend {
+            C { bundle_c(packages, quill_out, OUT_DIR, config.name) }
+            _ { log::error("'bundle' is not supported for this backend!") }
+        }
+    })
 }
 
 use quill::(
